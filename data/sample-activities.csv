@@ -1,0 +1,5 @@
+Calendar Item ID,Activity,Activity Detail,Activity Group,Rule Type,Active Status,Start Date,End Date,FTE,Colour,Assing To,Status,Notes,Data Quality
+CI-9001,Imported regression sweep,Parity check from the workbook import,Regression,Standard,Yes,2026-11-09,2026-11-20,1,#4f8cff,Sofia Marchetti,Planned,Imported demo row,
+CI-9002,Imported automation pack,Playwright pack for release flows,Automation,Effort,Yes,2026-11-16,2026-11-27,0.5,#14b8a6,Hana Suzuki,Planned,Imported demo row,
+CI-9003,Imported soak test,12h soak after deployment,Performance,Effort,Yes,46750,46760,0.5,#f59e0b,Tom Nguyen,Planned,Excel serial dates in source,
+CI-9004,Draft template row,Blank template row from the workbook,Regression,Standard,No,,,0.5,#94a3b8,,Planned,,
