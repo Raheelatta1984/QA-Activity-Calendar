@@ -29,11 +29,12 @@ Demo identities all use the password `demo1234`:
 | --- | --- | --- |
 | Dashboard | `tab.dashboard` | KPIs, progress and capacity by assignee, 4-month capacity trend, AI insights with evidence |
 | QA Calendar | `tab.calendar` | Fiscal year → quarter → month grid, holidays, current week, activity drawer, create/edit/actuals |
+| FTE Calendar | `tab.fte` | Planned **activity × day** FTE demand with a total per activity and per day, compared against the people available so QA testing resource can be arranged |
 | Pipeline | `tab.pipeline` | Combined QA + recording view, eligibility after weekends/holidays/exclusions/QA overlaps, blockers, TEST flags |
 | Capacity | `tab.capacity` | Resource × day grid with inline hours, occupied vs productive utilisation, monthly pivot, FTE demand chart |
 | Reporting | `tab.reporting` | Bug ledger linked to activities and services, derived status, progress bars, service matrix |
 | Releases | `tab.releases` | Release feed, PQU trains with flags, audited go/no-go governance, deployment formula parity |
-| Future Enhancements | `tab.enhancements` | AI-structured proposals, markdown vault in the repo, stage flow, archive |
+| Future Enhancements | `tab.enhancements` | Live AI-drafted proposals (every field suggested, always editable), markdown vault in the repo, stage flow, archive |
 | Data Quality | `tab.validation` | Rule catalogue + idempotent validation queue + audit trail |
 | Import Centre | `tab.imports` | Dry-run reconciliation, idempotent apply, row provenance |
 | Master Setup | `tab.setup` | Company, departments, drag-and-drop hierarchy, employees, tab/section toggles, holidays, defaults |
@@ -43,6 +44,9 @@ Every tab and section renders its **stable ID** (`tab.*` / `sec.*`) next to the 
 
 ### AI guidance, everywhere
 Each tab and section carries an editable sticky note at the top of the section. Notes are seeded with operational guidance, can be re-drafted from live data ("AI draft"), and are stored with author and timestamp. The AI engine is local and deterministic: no operational data leaves the server (see [DECISIONS #12](./docs/DECISIONS.md)).
+
+### Live AI drafting in the enhancement studio
+While you type “what needs to change?”, the studio drafts **options** — never a single fixed answer — for the outcome you want, the impacted tab/section IDs, title, brief, requirements, impacts, expected outcome, success criteria and the markdown handover. Each field offers two or three candidates you can accept, re-roll or ignore. The moment you type in a field it becomes yours: suggestions never overwrite an edit, and auto-drafting can be switched off entirely. Which fields were accepted from the assistant is stored on the proposal (`enhancements.ai_fields`) and written into the markdown front matter, so a reviewer can always tell machine-drafted text from the author's own words.
 
 ### Organisation, departments and visibility
 - Company entity and any number of departments; departments can be **disabled** without deleting data.
@@ -61,6 +65,7 @@ Each tab and section carries an editable sticky note at the top of the section. 
 ### Capacity, FTE and progress
 - Capacity hours are per person, per day, with four explicit categories: not available, DevOps, recording/maintenance, QA testing.
 - **Occupied capacity** = unavailable + DevOps + recording + QA ÷ total hours. This is not productive utilisation, and it is deliberately separate from FTE demand.
+- The **FTE calendar** (`tab.fte`) answers a different question: *which testing activity needs how much FTE on which day, and can we cover it?* One row per activity, one column per day, a total per row and per column, plus a demand-per-day chart against the headcount available. Scope it by month or fiscal quarter, department, activity group or assignee, and switch between FTE and hours. Supply is headcount × working days less recorded leave and DevOps time; a negative gap is a request for people, not a performance signal ([DECISIONS #22](./docs/DECISIONS.md)).
 - FTE precedence: explicit per-record override → Regression default `1` → stored FTE → configured default `0.5`. Hours convert through a configurable day length (7.6 default, 8 available) — 4h = 0.5 FTE at 8h/day.
 - Completion is derived from linked bugs: closed = 100%, fixed = 75%, open = 0%. A manual snapshot overrides the derived figure and is kept with its date.
 - A bug shared by two services closes only when **every** service link is closed.
@@ -84,7 +89,7 @@ Each tab and section carries an editable sticky note at the top of the section. 
 | `npm run db:reset` | **Destructive** local reset |
 | `npm run db:backup` | Online SQLite backup with SHA-256 checksum |
 | `npm run import -- <file.csv> [--target activities\|pipeline] [--apply]` | Import CLI, dry-run by default |
-| `npm test` | Unit + integration tests (24 tests) |
+| `npm test` | Unit + integration tests (37 tests) |
 | `npm run typecheck` | Strict TypeScript check |
 | `npm run catalogue` | Regenerate `docs/ID-CATALOGUE.md` |
 

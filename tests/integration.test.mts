@@ -24,7 +24,8 @@ const { detectIssues } = await import("../lib/validation");
 const { listBugs, deriveStatus } = await import("../lib/bugs");
 const { listActivities } = await import("../lib/activities");
 const { scopeFor, loadOrg, descendantsOf } = await import("../lib/access");
-const { isoToday } = await import("../lib/dates");
+const { isoToday, addDays } = await import("../lib/dates");
+const { fteCalendar } = await import("../lib/fte");
 
 const viewerFor = (email: string) => {
   const org = loadOrg();
@@ -189,14 +190,131 @@ test("every tab and section carries an AI guidance note", () => {
   assert.deepEqual(sectionsWithout.map((s) => s.id), [], "each section needs its own guidance");
 });
 
-test("catalogue covers every tab and section with a stable ID", () => {
+test("catalogue covers every tab and section with a stable ID", async () => {
+  const { TAB_CATALOGUE } = await import("../lib/seed");
   const tabs = all<{ id: string }>(`SELECT id FROM tabs`);
-  assert.equal(tabs.length, 11);
+  // The database catalogue is synced from code on every boot, so the two must match.
+  assert.equal(tabs.length, TAB_CATALOGUE.length);
   for (const tab of tabs) {
     assert.match(tab.id, /^tab\.[a-z]+$/);
   }
   const sections = all<{ id: string }>(`SELECT id FROM sections`);
+  assert.equal(
+    sections.length,
+    TAB_CATALOGUE.reduce((sum, tab) => sum + tab.sections.length, 0)
+  );
   for (const section of sections) {
     assert.match(section.id, /^sec\.[a-z]+\.[a-z]+$/);
   }
+  const fte = all<{ id: string }>(`SELECT id FROM sections WHERE tab_id = 'tab.fte'`);
+  assert.deepEqual(fte.map((s) => s.id).sort(), [
+    "sec.fte.filters",
+    "sec.fte.grid",
+    "sec.fte.resources",
+    "sec.fte.summary",
+  ]);
+});
+
+test("FTE calendar totals reconcile across rows, days and the rollups", () => {
+  const viewer = viewerFor("amara.okafor@hfm.demo");
+  const month = isoToday().slice(0, 7);
+  const calendar = fteCalendar(viewer, { monthKey: month });
+
+  assert.ok(calendar.rows.length > 0, "demo data covers the current month");
+  assert.equal(calendar.days.length, new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate());
+  assert.equal(calendar.days[0].date, `${month}-01`);
+
+  // Every visible day is inside the requested window.
+  for (const day of calendar.days) {
+    assert.ok(day.date >= calendar.start && day.date <= calendar.end);
+  }
+
+  // daily total = Σ activity FTE for that day
+  calendar.days.forEach((day, index) => {
+    const sum = Math.round(calendar.rows.reduce((total, row) => total + row.cells[index].fte, 0) * 100) / 100;
+    assert.equal(calendar.daily_totals[index], sum);
+  });
+
+  // grand total = Σ daily totals over working days = Σ per-activity working totals
+  const workingTotal =
+    Math.round(calendar.days.reduce((sum, day, index) => (day.working ? sum + calendar.daily_totals[index] : sum), 0) * 100) / 100;
+  const rowTotal = Math.round(calendar.rows.reduce((sum, row) => sum + row.total_fte_working, 0) * 100) / 100;
+  assert.equal(calendar.totals.fte_days_working, workingTotal);
+  assert.equal(calendar.totals.fte_days_working, rowTotal);
+  assert.ok(calendar.totals.fte_days >= calendar.totals.fte_days_working);
+
+  // Only active, scheduled activities contribute.
+  for (const row of calendar.rows) {
+    assert.ok(row.start_date && row.end_date);
+    assert.ok(row.covered_days > 0);
+    assert.ok(row.effective_fte > 0);
+  }
+
+  // Rollups add back up to the same demand.
+  const assigneeTotal = Math.round(calendar.by_assignee.reduce((sum, row) => sum + row.fte_days, 0) * 100) / 100;
+  const groupTotal = Math.round(calendar.by_group.reduce((sum, row) => sum + row.fte_days, 0) * 100) / 100;
+  assert.equal(assigneeTotal, calendar.totals.fte_days);
+  assert.equal(groupTotal, calendar.totals.fte_days);
+
+  // Supply is headcount × working days, less recorded unavailability.
+  assert.ok(calendar.totals.headcount > 0);
+  assert.equal(
+    calendar.totals.supply_fte_days,
+    Math.round((calendar.totals.headcount * calendar.totals.working_days - calendar.totals.unavailable_fte_days) * 100) / 100
+  );
+  assert.equal(
+    calendar.totals.variance_fte_days,
+    Math.round((calendar.totals.supply_fte_days - calendar.totals.fte_days_working) * 100) / 100
+  );
+});
+
+test("FTE calendar scopes by department, group and quarter", () => {
+  const admin = viewerFor("amara.okafor@hfm.demo");
+  const allWork = fteCalendar(admin, { monthKey: isoToday().slice(0, 7) });
+  const qa = all<{ id: string }>(`SELECT id FROM departments WHERE code = 'QA'`)[0];
+  const scoped = fteCalendar(admin, { monthKey: isoToday().slice(0, 7), departmentId: qa.id });
+  assert.equal(scoped.scope.department_name, "Quality Engineering");
+  for (const row of scoped.rows) assert.equal(row.department_id, qa.id);
+
+  const regression = fteCalendar(admin, { monthKey: isoToday().slice(0, 7), group: "Regression" });
+  assert.ok(regression.rows.length > 0);
+  for (const row of regression.rows) assert.equal(row.group, "Regression");
+
+  // A quarter spans three months and stays inside its own bounds.
+  const quarter = fteCalendar(admin, { range: "quarter", monthKey: isoToday().slice(0, 7) });
+  assert.ok(quarter.days.length >= 89 && quarter.days.length <= 92);
+  assert.equal(quarter.days[0].date, quarter.start);
+  assert.equal(quarter.days[quarter.days.length - 1].date, quarter.end);
+  assert.equal(addDays(quarter.end, 1).slice(8), "01");
+
+  // Visibility still applies: an engineer sees no more than the manager.
+  const ic = viewerFor("hana.suzuki@hfm.demo");
+  const icCalendar = fteCalendar(ic, { monthKey: isoToday().slice(0, 7) });
+  for (const row of icCalendar.rows) {
+    assert.ok(allWork.rows.some((adminRow) => adminRow.id === row.id), "a leaf must not see hidden work");
+  }
+});
+
+test("recording rows are excluded from the testing-only FTE calendar", () => {
+  const admin = viewerFor("amara.okafor@hfm.demo");
+  const month = isoToday().slice(0, 7);
+  const start = `${month}-01`;
+  const end = `${month}-28`;
+  const recording = get<{ id: string }>(
+    `SELECT id FROM activities WHERE activity_group = 'Recording' AND start_date IS NOT NULL LIMIT 1`
+  );
+  if (!recording) {
+    // Seed a recording activity so the filter is exercised either way.
+    run(
+      `INSERT INTO activities (id, code, department_id, activity, activity_group, active, start_date, end_date, duration_days, fte, colour, status, is_demo)
+       VALUES ('act_test_recording', 'CI-9001', 'dept_qa', 'Test recording row', 'Recording', 1, ?, ?, 5, 1, '#8b5cf6', 'Planned', 1)`,
+      start,
+      end
+    );
+  }
+  const testingOnly = fteCalendar(admin, { monthKey: month, testingOnly: true });
+  const everything = fteCalendar(admin, { monthKey: month, testingOnly: false });
+  assert.ok(!testingOnly.rows.some((row) => row.group === "Recording"), "recording is not QA testing effort");
+  assert.ok(everything.rows.some((row) => row.group === "Recording"), "the filter is opt-out");
+  if (!recording) run(`DELETE FROM activities WHERE id = 'act_test_recording'`);
 });

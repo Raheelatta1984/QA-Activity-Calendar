@@ -37,6 +37,7 @@ export function CalendarBoard({
   holidays,
   canEdit,
   path,
+  initialActivityId,
 }: {
   monthKey: string;
   monthLabel: string;
@@ -54,6 +55,8 @@ export function CalendarBoard({
   holidays: { date: string; name: string }[];
   canEdit: boolean;
   path: string;
+  /** Deep link from another tab (e.g. the FTE calendar) — opens that activity. */
+  initialActivityId?: string | null;
 }) {
   const router = useRouter();
   const [group, setGroup] = useState("all");
@@ -61,7 +64,7 @@ export function CalendarBoard({
   const [status, setStatus] = useState("all");
   const [view, setView] = useState<"both" | "qa" | "pipeline">("both");
   const [query, setQuery] = useState("");
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(initialActivityId ?? null);
   const [openPipelineId, setOpenPipelineId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<ClientActivity | null>(null);

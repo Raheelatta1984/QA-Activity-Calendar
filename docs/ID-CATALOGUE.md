@@ -10,6 +10,7 @@ them for a new surface; add a new row instead.
 | --- | --- | --- | --- | --- | --- |
 | `tab.dashboard` | Dashboard | Workspace | viewer | yes | 6 |
 | `tab.calendar` | QA Calendar | Workspace | viewer | yes | 3 |
+| `tab.fte` | FTE Calendar | Workspace | viewer | yes | 4 |
 | `tab.pipeline` | Pipeline | Workspace | viewer | yes | 3 |
 | `tab.capacity` | Capacity | Workspace | viewer | yes | 3 |
 | `tab.reporting` | Reporting | Workspace | viewer | yes | 3 |
@@ -40,6 +41,15 @@ them for a new surface; add a new row instead.
 | `sec.calendar.filters` | Fiscal selectors | yes | Year, quarter and month selectors — month overrides quarter. |
 | `sec.calendar.grid` | Month grid | yes | Activities plotted by inclusive date range. |
 | `sec.calendar.legend` | Legend & holidays | yes | Colour dictionary and NSW public holidays in scope. |
+
+### FTE Calendar — `tab.fte`
+
+| Section ID | Label | Enabled | Description |
+| --- | --- | --- | --- |
+| `sec.fte.filters` | Scope | yes | Period, department, activity group and assignee selectors. |
+| `sec.fte.summary` | FTE required vs available | yes | Demand, headcount supply, resourcing gap and over-allocated days. |
+| `sec.fte.grid` | Activity × day matrix | yes | FTE per activity per day with totals per row and per column. |
+| `sec.fte.resources` | Resource load | yes | Allocated FTE per person and demand by activity group. |
 
 ### Pipeline — `tab.pipeline`
 

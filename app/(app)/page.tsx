@@ -266,9 +266,14 @@ export default async function DashboardPage() {
             ) : (
               <div className="empty">No people in the current scope.</div>
             )}
-            <Link className="btn btn-sm" href="/capacity" style={{ justifySelf: "start" }}>
-              Open capacity planner <Icon name="chevronRight" size={13} />
-            </Link>
+            <div className="row" style={{ gap: 8 }}>
+              <Link className="btn btn-sm" href="/capacity" style={{ justifySelf: "start" }}>
+                Open capacity planner <Icon name="chevronRight" size={13} />
+              </Link>
+              <Link className="btn btn-sm" href="/fte" style={{ justifySelf: "start" }}>
+                Plan FTE by activity <Icon name="chevronRight" size={13} />
+              </Link>
+            </div>
           </div>
         </Section>
       </div>

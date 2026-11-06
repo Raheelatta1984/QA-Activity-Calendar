@@ -19,7 +19,7 @@ Disposition legend:
 | --- | --- | --- | --- | --- |
 | 01 | Copilot Prompt | Sticky notes + `docs/DECISIONS.md` | **Config** | Read as data, never executed. Guidance is mapped to editable sticky notes on every tab/section. |
 | 02 | Master Activity Data (`tblActivities`) | `activities`, `activity_assignments` | **Imported** | Column mapping below. Blank template rows vs genuine unscheduled records separated; `Assing To` spelling preserved in the import alias list, normalised internally to `assignee_id`. |
-| 11 | Res_Alloc_Projection | Capacity → FTE demand (`demandByDay`) | **Rebuilt** | Daily FTE total computed over inclusive dates; activity rows stay a breakdown, not people. Future dates supported; person filter via scope; over-allocation flagged (`activity.fte_conflict`, `>1 FTE`). |
+| 11 | Res_Alloc_Projection | Capacity → FTE demand (`demandByDay`) + `tab.fte` (FTE calendar by activity) | **Rebuilt** | Daily FTE total computed over inclusive dates; activity rows stay a breakdown, not people. Future dates supported; person filter via scope; over-allocation flagged (`activity.fte_conflict`, `>1 FTE`). |
 | 12 | Master Calendar | QA Calendar | **Rebuilt (partial)** | Annual grid virtualised to month windows. Sheet not supplied for formula comparison → **no consolidation** with Master Calendar (2); see DECISIONS #10. |
 | 13 | Master Calendar (2) | QA Calendar | **Rebuilt** | 1,281-column grid replaced by a date-window query + month rendering; no precomputed empty cells. |
 | 14 | QA Calendar | `tab.calendar` | **Rebuilt** | Year → quarter → month selection; holidays, weekends, today, current week. Activity opens from the calendar item. Display-rule consolidation is pending confirmation (DECISIONS #11). |
@@ -88,5 +88,7 @@ Hidden sheets, named ranges, pivots and conditional formatting cannot be enumera
 | Accessible responsive UI | Semantic landmarks, focus styles, mobile layout, reduced-motion-safe transitions |
 | Editable vs calculated clarity | Labels state "derived" where relevant; calculated fields are read-only |
 | No empty placeholder modules | Every tab renders live data or an explicit empty state |
+| FTE calendar by activity per day with totals | `tab.fte`, `lib/fte.ts`, `components/FteCalendarBoard.tsx` |
+| Live AI drafting of enhancement fields | `lib/ai.ts` (`suggestEnhancementFields`), `app/actions/enhancements.ts`, `components/EnhancementStudio.tsx` |
 | Enhancement intake → GitHub | `tab.enhancements`, markdown vault, archive flow |
 | What's New per PR/merge | `tab.changelog` + admin entry form |

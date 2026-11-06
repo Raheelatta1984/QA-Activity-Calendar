@@ -48,6 +48,11 @@ export default async function CapacityPage({
             default {settings.hoursPerDay}h/day
           </>
         }
+        action={
+          <Link className="btn btn-sm" href={`/fte?month=${monthKey}`}>
+            <Icon name="target" size={13} /> FTE calendar by activity
+          </Link>
+        }
       />
 
       <div className="kpi-grid" style={{ marginBottom: 18 }}>

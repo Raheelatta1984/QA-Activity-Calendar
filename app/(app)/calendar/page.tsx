@@ -26,7 +26,7 @@ export const dynamic = "force-dynamic";
 export default async function CalendarPage({
   searchParams,
 }: {
-  searchParams: Promise<{ fy?: string; q?: string; month?: string }>;
+  searchParams: Promise<{ fy?: string; q?: string; month?: string; activity?: string }>;
 }) {
   const viewer = await getViewer();
   const settings = appSettings();
@@ -185,6 +185,7 @@ export default async function CalendarPage({
           holidays={monthHolidays}
           canEdit={canEdit(viewer)}
           path="/calendar"
+          initialActivityId={params.activity ?? null}
         />
       </Section>
 

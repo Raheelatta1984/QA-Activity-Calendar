@@ -18,6 +18,7 @@ export type Enhancement = {
   submitted_by_name: string | null;
   department_id: string | null;
   department_name: string | null;
+  ai_fields: string | null;
   votes: number;
   archived_at: string | null;
   created_at: string;

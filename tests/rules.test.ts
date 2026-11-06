@@ -17,7 +17,8 @@ import { fteFromHours, resolveFte } from "../lib/activities";
 import { effectiveRange } from "../lib/pipeline";
 import { deriveStatus } from "../lib/bugs";
 import { descendantsOf, scopeFor, type Org } from "../lib/access";
-import { draftEnhancement } from "../lib/ai";
+import { draftEnhancement, suggestEnhancementFields, matchSections } from "../lib/ai";
+import { buildDays, dailyFte, demandSeries, headcountFor, quarterBounds, quarterOfMonth } from "../lib/fte";
 import { decodeSessionToken, encodeSessionToken } from "../lib/session-token";
 import { MIGRATIONS } from "../db/migrations.generated";
 
@@ -234,4 +235,133 @@ test("migrations are embedded for serverless bundles", () => {
   assert.equal(MIGRATIONS[0].name, "001_init.sql");
   assert.match(MIGRATIONS[0].sql, /CREATE TABLE IF NOT EXISTS activities/i);
   assert.match(MIGRATIONS[0].sql, /CREATE TABLE IF NOT EXISTS tabs/i);
+});
+
+/* ------------------------------------------------------------------ FTE calendar */
+
+test("FTE is demanded on every inclusive day of an activity and nowhere else", () => {
+  const activity = { start_date: "2026-11-02", end_date: "2026-11-04" };
+  assert.equal(dailyFte(activity, 1, "2026-11-01"), 0);
+  assert.equal(dailyFte(activity, 1, "2026-11-02"), 1);
+  assert.equal(dailyFte(activity, 1, "2026-11-03"), 1);
+  assert.equal(dailyFte(activity, 1, "2026-11-04"), 1);
+  assert.equal(dailyFte(activity, 1, "2026-11-05"), 0);
+  // An unscheduled record can never contribute demand.
+  assert.equal(dailyFte({ start_date: null, end_date: "2026-11-04" }, 1, "2026-11-04"), 0);
+});
+
+test("overlapping activities sum per day rather than averaging", () => {
+  const days = ["2026-11-02", "2026-11-03", "2026-11-04"];
+  const active = { active: 1 } as const;
+  const series = demandSeries(
+    [
+      { id: "a", activity: "Regression", start_date: "2026-11-02", end_date: "2026-11-04", effective_fte: 1, activity_group: "Regression", ...active },
+      { id: "b", activity: "Automation", start_date: "2026-11-03", end_date: "2026-11-03", effective_fte: 0.5, activity_group: "Automation", ...active },
+      { id: "c", activity: "Inactive", start_date: "2026-11-02", end_date: "2026-11-04", effective_fte: 1, activity_group: "Regression", active: 0 },
+    ],
+    days
+  );
+  assert.deepEqual(series, [1, 1.5, 1]);
+});
+
+test("headcount needed is whole people, never fractions of a person", () => {
+  assert.equal(headcountFor(0), 0);
+  assert.equal(headcountFor(0.4), 1);
+  assert.equal(headcountFor(1), 1);
+  assert.equal(headcountFor(1.2), 2); // 1.2 FTE still needs two bodies
+  assert.equal(headcountFor(3), 3);
+});
+
+test("fiscal quarters start in July and end on the last day of the quarter", () => {
+  assert.equal(quarterOfMonth("2026-07"), 1);
+  assert.equal(quarterOfMonth("2026-09"), 1);
+  assert.equal(quarterOfMonth("2026-10"), 2);
+  assert.equal(quarterOfMonth("2026-12"), 2);
+  assert.equal(quarterOfMonth("2027-01"), 3);
+  assert.equal(quarterOfMonth("2027-06"), 4);
+  assert.equal(quarterOfMonth("2027-07"), 1);
+
+  const q1 = quarterBounds("2026-11", 1, 7);
+  assert.equal(q1.start, "2026-07-01");
+  assert.equal(q1.end, "2026-09-30");
+  const q3 = quarterBounds("2026-11", 3, 7);
+  assert.equal(q3.start, "2027-01-01");
+  assert.equal(q3.end, "2027-03-31");
+});
+
+test("FTE calendar days distinguish weekends and supplied holidays", () => {
+  const days = buildDays("2026-11-01", "2026-11-30", new Map([["2026-11-10", "Demo holiday"]]), "2026-11-06");
+  assert.equal(days.length, 30);
+  assert.equal(days[5].date, "2026-11-06");
+  assert.equal(days[5].isToday, true);
+  // 1 Nov 2026 is a Sunday, 7 Nov is a Saturday, 10 Nov is a supplied holiday.
+  assert.equal(days[0].working, false);
+  assert.equal(days[6].working, false);
+  assert.equal(days[9].working, false);
+  assert.equal(days[9].holiday, "Demo holiday");
+  // November 2026 has 9 weekend days (5 Sundays, 4 Saturdays) plus the holiday.
+  assert.equal(days.filter((d) => d.working).length, 30 - 9 - 1);
+});
+
+/* ------------------------------------------------- live enhancement suggestions */
+
+test("the studio drafts options for every field, not a single fixed answer", () => {
+  const suggestions = suggestEnhancementFields({
+    raw: "Managers need a rolling three-month capacity forecast per department so we can plan contractors before the regression cycle starts.",
+    area: "Capacity",
+    catalogue: [
+      { id: "sec.capacity.pivot", label: "Monthly pivot", tabId: "tab.capacity", tabLabel: "Capacity" },
+      { id: "sec.capacity.demand", label: "FTE demand vs capacity", tabId: "tab.capacity", tabLabel: "Capacity" },
+      { id: "sec.reporting.bugs", label: "Bug ledger", tabId: "tab.reporting", tabLabel: "Reporting" },
+    ],
+    departmentName: "Quality Engineering",
+    submittedBy: "Amara Okafor",
+  });
+
+  for (const field of ["outcome", "title", "brief", "requirements", "impacts", "expectedOutcome", "successCriteria"] as const) {
+    assert.ok(suggestions[field].length >= 2, `${field} should offer a choice`);
+    assert.ok(suggestions[field].every((option) => option.trim().length > 0), `${field} options must not be blank`);
+  }
+  assert.ok(suggestions.markdown[0].includes("## Brief"));
+  assert.ok(suggestions.markdown[0].includes("Managers need"));
+  // Impacted IDs are real catalogue IDs, ranked by relevance to the request.
+  assert.match(suggestions.sections[0], /^sec\.capacity\./);
+  assert.equal(suggestions.provider, process.env.AI_PROVIDER || "local");
+  assert.equal(suggestions.area, "Capacity");
+});
+
+test("impact suggestions rank real tab and section IDs against the request", () => {
+  const catalogue = [
+    { id: "sec.releases.pqu", label: "PQU schedule", tabId: "tab.releases", tabLabel: "Releases" },
+    { id: "sec.dashboard.kpis", label: "Headline KPIs", tabId: "tab.dashboard", tabLabel: "Dashboard" },
+  ];
+  const ranked = matchSections("The release train schedule needs a go/no-go flag", "Releases", catalogue);
+  assert.equal(ranked[0]?.id, "sec.releases.pqu");
+  assert.deepEqual(matchSections("nothing matches here", undefined, catalogue), []);
+  assert.deepEqual(matchSections("anything", undefined, []), []);
+});
+
+test("the handover keeps every section heading and never invents an ID", () => {
+  const catalogue = [
+    { id: "sec.fte.grid", label: "Activity × day matrix", tabId: "tab.fte", tabLabel: "FTE Calendar" },
+    { id: "sec.fte.summary", label: "FTE required vs available", tabId: "tab.fte", tabLabel: "FTE Calendar" },
+  ];
+  const suggestions = suggestEnhancementFields({
+    raw: "We need an FTE calendar by activity per day so managers can plan QA testing resource for the month.",
+    area: "FTE Calendar",
+    catalogue,
+  });
+  const markdown = suggestions.markdown[0];
+  for (const heading of ["## Brief", "## Requirements", "## Impacts", "## Expected outcome", "## Success criteria"]) {
+    assert.ok(markdown.includes(heading), `handover is missing ${heading}`);
+  }
+  // Every suggested ID must exist in the live catalogue — the engine cannot invent one.
+  for (const option of suggestions.sections) {
+    for (const id of option.split(",").map((value) => value.trim())) {
+      assert.ok(
+        catalogue.some((entry) => entry.id === id),
+        `${id} is not a real section ID`
+      );
+    }
+  }
 });

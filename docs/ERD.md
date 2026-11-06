@@ -75,7 +75,7 @@ erDiagram
 | `colour_rules` | Colour dictionary (activity/pipeline/calendar) |
 | `settings` | Calculation defaults (FTE, hours/day, fiscal month, visibility) |
 | `changelog` | What's New entries with PR references |
-| `enhancements` | Enhancement vault records + markdown path + stage/archive |
+| `enhancements` | Enhancement vault records + markdown path + stage/archive + `ai_fields` (which fields were accepted from the assistant) |
 | `ai_summaries` | Reserved for stored AI snapshot summaries (provider + payload) |
 
 ### Quality, provenance & audit
