@@ -318,3 +318,49 @@ test("recording rows are excluded from the testing-only FTE calendar", () => {
   assert.ok(everything.rows.some((row) => row.group === "Recording"), "the filter is opt-out");
   if (!recording) run(`DELETE FROM activities WHERE id = 'act_test_recording'`);
 });
+
+test("ephemeral serverless enhancement vault lists seeded and newly submitted proposals", async () => {
+  const { enhancementFileName, removeVaultMarkdown, renderEnhancementMarkdown, vaultFiles, writeVaultMarkdown } =
+    await import("../lib/enhancements");
+  const prevVercel = process.env.VERCEL;
+  const prevDir = process.env.ENHANCEMENT_VAULT_DIR;
+  const tempVault = fs.mkdtempSync(path.join(os.tmpdir(), "qa-enh-int-"));
+  const fileName = enhancementFileName("ENH-0004", "Introduce IT Delivery department");
+
+  try {
+    process.env.VERCEL = "1";
+    process.env.ENHANCEMENT_VAULT_DIR = tempVault;
+
+    const { body, fileContent } = renderEnhancementMarkdown({
+      ref: "ENH-0004",
+      title: "Introduce IT Delivery department",
+      status: "Submitted",
+      submittedBy: "Amara Okafor",
+      submittedOn: "2026-11-06",
+      brief: "Group QA and Release Management under IT Delivery.",
+    });
+
+    const written = writeVaultMarkdown({ fileName, content: fileContent });
+    run(
+      `INSERT INTO enhancements (id, ref, title, brief, markdown, status, github_path, submitted_by)
+       VALUES ('enh_test_4', 'ENH-0004', 'Introduce IT Delivery department', 'Group QA under IT Delivery.', ?, 'Submitted', ?, 'p_amara')`,
+      body,
+      written.relativePath
+    );
+
+    const files = vaultFiles();
+    assert.ok(files.includes(`enhancements/${fileName}`), "newly submitted proposal appears in vault listing");
+    assert.ok(
+      files.some((f) => f.includes("ENH-0001")),
+      "seeded enhancements remain visible in ephemeral vault mode"
+    );
+  } finally {
+    run(`DELETE FROM enhancements WHERE id = 'enh_test_4'`);
+    removeVaultMarkdown(`enhancements/${fileName}`);
+    fs.rmSync(tempVault, { recursive: true, force: true });
+    if (prevVercel === undefined) delete process.env.VERCEL;
+    else process.env.VERCEL = prevVercel;
+    if (prevDir === undefined) delete process.env.ENHANCEMENT_VAULT_DIR;
+    else process.env.ENHANCEMENT_VAULT_DIR = prevDir;
+  }
+});

@@ -21,6 +21,18 @@ import { draftEnhancement, suggestEnhancementFields, matchSections } from "../li
 import { buildDays, dailyFte, demandSeries, headcountFor, quarterBounds, quarterOfMonth } from "../lib/fte";
 import { decodeSessionToken, encodeSessionToken } from "../lib/session-token";
 import { MIGRATIONS } from "../db/migrations.generated";
+import {
+  enhancementFileName,
+  readEnhancementMarkdown,
+  relocateVaultMarkdown,
+  removeVaultMarkdown,
+  renderEnhancementMarkdown,
+  vaultInfo,
+  writeVaultMarkdown,
+} from "../lib/enhancements";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 test("FY27 runs July 2026 to June 2027", () => {
   const nov = fiscalYearOf("2026-11-06");
@@ -364,4 +376,101 @@ test("the handover keeps every section heading and never invents an ID", () => {
       );
     }
   }
+});
+
+/* ------------------------------------------- serverless & read-only vault */
+
+test("enhancement vault falls back cleanly to /tmp when the configured or bundle path is read-only", () => {
+  const prevDir = process.env.ENHANCEMENT_VAULT_DIR;
+  const prevVercel = process.env.VERCEL;
+  const roDir = fs.mkdtempSync(path.join(os.tmpdir(), "qa-vault-ro-"));
+  const title = "QA Calendar: Introduce IT Delivery department and move QA department";
+  const fileName = enhancementFileName("ENH-0004", title);
+
+  try {
+    // Make the directory read-only to reproduce /var/task/enhancements (EROFS/EACCES).
+    fs.chmodSync(roDir, 0o555);
+    process.env.ENHANCEMENT_VAULT_DIR = roDir;
+
+    const { fileContent } = renderEnhancementMarkdown({
+      ref: "ENH-0004",
+      title,
+      status: "Submitted",
+      submittedBy: "Amara Okafor",
+      submittedOn: "2026-11-06",
+      sections: "sec.setup.departments, sec.setup.hierarchy",
+      aiFields: ["title", "brief"],
+      brief: "Introduce an IT Delivery parent department and move Quality Engineering underneath it.",
+    });
+
+    const written = writeVaultMarkdown({ fileName, content: fileContent });
+    assert.equal(written.persistedToDisk, true);
+    assert.equal(written.ephemeral, true);
+    assert.equal(written.relativePath, `enhancements/${fileName}`);
+    assert.ok(written.fullPath?.startsWith(path.join(os.tmpdir(), "enhancements")));
+    assert.equal(fs.existsSync(written.fullPath!), true);
+
+    const downloaded = readEnhancementMarkdown({
+      ref: "ENH-0004",
+      title,
+      status: "Submitted",
+      github_path: written.relativePath,
+    });
+    assert.equal(downloaded.filename, fileName);
+    assert.match(downloaded.content, /ref: "ENH-0004"/);
+    assert.match(downloaded.content, /status: "Submitted"/);
+
+    // Archiving relocates inside the writable fallback without touching the read-only mount.
+    const archived = relocateVaultMarkdown({
+      githubPath: written.relativePath,
+      ref: "ENH-0004",
+      title,
+      status: "Archived",
+      fallbackContent: fileContent,
+    });
+    assert.equal(archived.relativePath, `enhancements/archive/${fileName}`);
+    assert.equal(fs.existsSync(archived.fullPath!), true);
+    assert.match(fs.readFileSync(archived.fullPath!, "utf8"), /status: "Archived"/);
+
+    removeVaultMarkdown(archived.relativePath);
+    assert.equal(fs.existsSync(archived.fullPath!), false);
+
+    // On Vercel with no explicit override, /tmp/enhancements is selected up front.
+    delete process.env.ENHANCEMENT_VAULT_DIR;
+    process.env.VERCEL = "1";
+    const info = vaultInfo();
+    assert.equal(info.serverless, true);
+    assert.equal(info.ephemeral, true);
+    assert.equal(info.dir, path.join(os.tmpdir(), "enhancements"));
+  } finally {
+    try {
+      fs.chmodSync(roDir, 0o755);
+      fs.rmSync(roDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+    removeVaultMarkdown(`enhancements/${fileName}`);
+    if (prevDir === undefined) delete process.env.ENHANCEMENT_VAULT_DIR;
+    else process.env.ENHANCEMENT_VAULT_DIR = prevDir;
+    if (prevVercel === undefined) delete process.env.VERCEL;
+    else process.env.VERCEL = prevVercel;
+  }
+});
+
+test("readEnhancementMarkdown synthesises frontmatter Markdown when no disk copy exists", () => {
+  const result = readEnhancementMarkdown({
+    ref: "ENH-0099",
+    title: "Cross-instance enhancement download",
+    brief: "Ensure downloads still contain YAML frontmatter after a serverless cold start.",
+    requirements: "- Serve from DB when /tmp has reset.",
+    status: "Reviewing",
+    submitted_by_name: "Lachlan Reid",
+    ai_fields: JSON.stringify(["title"]),
+    created_at: "2026-11-06T10:00:00Z",
+  });
+  assert.equal(result.filename, "ENH-0099-cross-instance-enhancement-download.md");
+  assert.match(result.content, /^---\nref: "ENH-0099"/);
+  assert.match(result.content, /submitted_by: "Lachlan Reid"/);
+  assert.match(result.content, /ai_fields: "title"/);
+  assert.match(result.content, /## Brief/);
 });

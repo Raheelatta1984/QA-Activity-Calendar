@@ -82,7 +82,7 @@ Hours conversion uses a configurable day length: default **7.6h** (source capaci
 **Open:** agree retention (e.g. 7 years for release decisions) and any archival job.
 
 ## 20. Enhancements and GitHub
-**Decision:** enhancements are stored in the database *and* written as Markdown into `enhancements/` in this repository. Archiving moves the file to `enhancements/archive/` so it is not reviewed again. A GitHub token is optional; the default flow is a human commit.
+**Decision:** enhancements are stored in the database *and* written as Markdown into `enhancements/` in this repository when the filesystem is writable. On read-only serverless bundles (e.g. Vercel `/var/task`, which returns `EROFS`), writes and archive moves fall back automatically to `/tmp/enhancements` and `/api/enhancements/:id` serves the complete YAML-frontmatter Markdown from disk or the database so any proposal can be downloaded and committed to Git. Archiving moves the file to `enhancements/archive/` so it is not reviewed again. A GitHub token is optional; the default flow is a human commit.
 **Open:** should the app push directly via the GitHub API in CI? Requires a scoped token and PR policy.
 
 ## 21. Serverless storage (Vercel)

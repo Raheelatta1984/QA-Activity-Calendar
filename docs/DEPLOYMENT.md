@@ -34,6 +34,7 @@ Vercel gives a function a **read-only bundle** and a **writable `/tmp`**, and ea
 | Concern | Behaviour on Vercel |
 | --- | --- |
 | Database location | `DATABASE_FILE` if set, otherwise `/tmp/qa-calendar.db`. If the configured path is not writable the app logs a warning and falls back to `/tmp`. |
+| Enhancement vault | `ENHANCEMENT_VAULT_DIR` if set, otherwise `/tmp/enhancements` on serverless (and falls back to `/tmp/enhancements` whenever the repository `enhancements/` directory returns `EROFS`/`EACCES`). Proposals remain downloadable as frontmatter Markdown via `/api/enhancements/:id`. |
 | Schema | Migrations are embedded into `db/migrations.generated.ts` at build time (`prebuild`), so a cold start never depends on `.sql` files that were not traced into the bundle. Also applied read from disk in dev. |
 | Seeding | Idempotent bootstrap runs on the first request per instance: migrations → reference config → demo rows (unless `SEED_DEMO_DATA=false`) → validation scan. A failed run is retried on the next request and its error is exposed by `/api/health`. |
 | Sessions | Cookies are signed, self-contained tokens (`<base64url payload>.<hmac>`), so a login survives a cold start or a hop to another instance. The `sessions` row is still written and honoured when present (revocation/audit). |
@@ -78,7 +79,7 @@ Do **not** set `DATABASE_FILE` to a path inside the deployment bundle — it is 
 | `Application error … Digest` on every page | Bootstrap failed (schema missing) or `node:sqlite` unavailable | Open `/api/health`; check `bootstrapError`; confirm Node 22.x |
 | Health shows `people: 0` | Seeding skipped (`SEED_DEMO_DATA=false`) or not yet run | Hit any page once, or call `/api/health` (it bootstraps) |
 | `no such table: …` | Migration SQL missing from the bundle | Ensure `prebuild` ran / `db/migrations.generated.ts` is committed, then redeploy |
-| `EROFS` / `EACCES` in logs | Writable path configured inside the bundle | Unset `DATABASE_FILE` to use `/tmp` |
+| `EROFS` / `EACCES` in logs | Writable path configured inside the bundle | Unset `DATABASE_FILE` / `ENHANCEMENT_VAULT_DIR` to use `/tmp` |
 | Login bounces back to `/login` | `SESSION_SECRET` changed between deployments, or cookie blocked | Set a stable `SESSION_SECRET`; sign in again |
 | Data resets after a while | Expected on ephemeral storage | Configure Postgres for durable storage (see ERD) |
 
@@ -97,6 +98,7 @@ For a real deployment put Postgres/Neon in front of the data layer (keeps the sa
 | `SEED_DEMO_DATA` | no | `false` for a clean production instance |
 | `AI_PROVIDER` | no | `local` (default) or `openai` after approval |
 | `AI_API_KEY` | no | Only with an approved hosted provider; keep in the secret store |
+| `ENHANCEMENT_VAULT_DIR` | no | Override path for enhancement Markdown files (defaults to `./enhancements` locally, `/tmp/enhancements` on serverless) |
 | `GITHUB_REPO`, `GITHUB_TOKEN` | no | Optional enhancement-vault automation; never expose to the browser |
 
 Secrets live in the platform secret store. `.env` is gitignored; `.env.example` contains **no** secrets. The app never renders environment values.
