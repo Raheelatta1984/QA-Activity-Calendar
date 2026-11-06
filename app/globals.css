@@ -694,6 +694,57 @@ html[data-theme="light"] .badge-purple { color: #6d28d9; }
 
 .page-foot { margin-top: 30px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 0.72rem; color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; justify-content: space-between; }
 
+/* ------------------------------------------------------- AI suggestion bar --- */
+.ai-bar { margin-top: 6px; }
+.ai-bar .btn { font-size: 0.7rem; padding: 3px 7px; border-radius: 6px; }
+.ai-bar .badge { font-size: 0.64rem; }
+.ai-bar .btn svg { width: 11px; height: 11px; }
+
+/* ------------------------------------------------------------ FTE matrix --- */
+.fte-scroll { overflow: auto; max-height: 68vh; border-top: 1px solid var(--border); }
+table.fte-matrix { border-collapse: separate; border-spacing: 0; font-size: 0.74rem; width: max-content; min-width: 100%; }
+table.fte-matrix th, table.fte-matrix td { border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); }
+table.fte-matrix thead th { position: sticky; top: 0; z-index: 3; background: var(--surface-2); }
+table.fte-matrix tfoot td { position: sticky; bottom: 0; background: var(--surface-2); font-weight: 650; z-index: 2; }
+table.fte-matrix tfoot td.fte-sticky { z-index: 4; }
+.fte-sticky {
+  position: sticky; left: 0; z-index: 2; background: var(--surface); min-width: 260px; max-width: 320px;
+  padding: 6px 10px !important; text-align: left !important;
+}
+table.fte-matrix thead .fte-sticky { z-index: 4; background: var(--surface-2); }
+.fte-day { width: 34px; min-width: 34px; text-align: center; padding: 4px 2px !important; }
+.fte-day-off { color: var(--muted); background: var(--surface-3); }
+.fte-day-today { color: var(--brand); box-shadow: inset 0 -2px 0 var(--brand); }
+.fte-dow { font-size: 0.58rem; letter-spacing: 0.04em; opacity: 0.75; text-transform: uppercase; }
+.fte-cell {
+  width: 34px; min-width: 34px; text-align: center; padding: 4px 2px !important;
+  font-variant-numeric: tabular-nums; color: var(--text); white-space: nowrap;
+}
+.fte-cell.is-off { background: var(--surface-3); opacity: 0.7; }
+.fte-cell.is-today { box-shadow: inset 0 0 0 1px var(--brand); }
+.fte-cell.is-over { outline: 1px solid var(--bad); outline-offset: -1px; color: var(--bad); font-weight: 700; }
+.fte-cell.is-focus { outline: 1px solid var(--brand); outline-offset: -1px; }
+.fte-total { background: var(--surface-2); font-weight: 700; }
+.fte-total-col {
+  position: sticky; right: 0; background: var(--surface-2); z-index: 2; min-width: 74px;
+  border-left: 1px solid var(--border-strong);
+}
+table.fte-matrix thead .fte-total-col { z-index: 4; }
+.fte-note { font-size: 0.74rem; color: var(--muted); }
+.fte-bar { display: flex; flex-direction: column; gap: 5px; }
+.fte-bar-row { display: grid; grid-template-columns: minmax(120px, 1fr) 3fr auto; gap: 10px; align-items: center; font-size: 0.78rem; }
+.fte-bar-track { height: 8px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.fte-bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--brand), var(--purple)); }
+.fte-bar-fill.over { background: linear-gradient(90deg, var(--bad), #b91c1c); }
+
+.segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.segmented-btn {
+  background: transparent; border: none; color: var(--text-dim); padding: 5px 10px; font-size: 0.74rem;
+  cursor: pointer; font-weight: 600;
+}
+.segmented-btn + .segmented-btn { border-left: 1px solid var(--border); }
+.segmented-btn.active { background: var(--brand-soft); color: var(--brand); }
+
 .mobile-only { display: none; }
 
 @media (max-width: 1080px) {

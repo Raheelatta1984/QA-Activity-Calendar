@@ -4,6 +4,7 @@ import { listActivities } from "./activities";
 import { listBugs, bugTotals } from "./bugs";
 import { listPipeline, pipelineStats } from "./pipeline";
 import { isoToday, addDays, monthStart } from "./dates";
+import type { SuggestionField } from "./enhancement-fields";
 
 /**
  * Local, deterministic AI assistance.
@@ -143,6 +144,11 @@ export function dashboardInsights(viewer: Viewer, monthKey?: string): Insight[] 
 
 const KEYWORD_MAP: Array<{ test: RegExp; area: string; impact: string }> = [
   { test: /calendar|date|fiscal|month/i, area: "QA Calendar", impact: "Calendar rendering, fiscal selectors and date-only scheduling." },
+  {
+    test: /\bfte\b|full.?time equivalent|headcount|resourcing|resource planning|capacity calendar/i,
+    area: "FTE Calendar",
+    impact: "FTE calendar grid, activity × day totals, resourcing summary and the FTE/hours toggle.",
+  },
   { test: /capacity|resource|hours|utilisation|utilization/i, area: "Capacity", impact: "Capacity planner, FTE projection and utilisation reporting." },
   { test: /pipeline|record|recording/i, area: "Pipeline", impact: "Recording pipeline, eligibility calculation and exclusions." },
   { test: /release|deploy|go\/?no|pqu|version/i, area: "Releases", impact: "Release feed, PQU trains and governance decisions." },
@@ -242,6 +248,341 @@ export function draftEnhancement(input: {
   };
 }
 
+/* -------------------------------------------------------------------------- */
+/* Live field suggestions for the enhancement studio                           */
+/* -------------------------------------------------------------------------- */
+
+export type EnhancementSuggestions = Record<SuggestionField, string[]> & {
+  provider: string;
+  area: string;
+  generatedAt: string;
+};
+
+export type SectionRef = { id: string; label: string; tabId: string; tabLabel: string };
+
+export type SuggestionInput = {
+  raw: string;
+  area?: string;
+  outcome?: string;
+  title?: string;
+  brief?: string;
+  requirements?: string;
+  impacts?: string;
+  expectedOutcome?: string;
+  successCriteria?: string;
+  sections?: string;
+  departmentName?: string;
+  submittedBy?: string;
+  /** Live tab/section catalogue from the database (supplied by the action). */
+  catalogue?: SectionRef[];
+};
+
+/** Ranks real tab/section IDs against the request text so suggestions are valid IDs. */
+export function matchSections(text: string, area: string | undefined, catalogue: SectionRef[]): SectionRef[] {
+  if (!catalogue.length) return [];
+  const words = new Set((text.toLowerCase().match(/[a-z]{4,}/g) ?? []));
+  const areaLower = (area ?? "").toLowerCase();
+  return catalogue
+    .map((entry) => {
+      const haystack = `${entry.id} ${entry.label} ${entry.tabId} ${entry.tabLabel}`.toLowerCase();
+      let score = 0;
+      for (const word of words) if (haystack.includes(word)) score += 2;
+      if (areaLower && haystack.includes(areaLower)) score += 5;
+      if (areaLower && haystack.includes(areaLower.replace(/\s+/g, ""))) score += 3;
+      return { entry, score };
+    })
+    .filter((row) => row.score > 0)
+    .sort((a, b) => b.score - a.score || a.entry.id.localeCompare(b.entry.id))
+    .map((row) => row.entry);
+}
+
+function unique(list: string[]): string[] {
+  return [...new Set(list.map((item) => item.trim()).filter(Boolean))];
+}
+
+const DANGLING = /\s+(a|an|the|and|or|so|as|per|for|to|of|with|by|in|on|we|i|that|can|should|must|from|at|is|are|be)$/i;
+
+/** Shortens to a word boundary without an ellipsis — for sentences that read on. */
+function trimWords(value: string, max: number) {
+  let text = value.replace(/\s+/g, " ").trim();
+  if (text.length <= max) return text;
+  text = text.slice(0, max);
+  const space = text.lastIndexOf(" ");
+  if (space > max * 0.6) text = text.slice(0, space);
+  while (DANGLING.test(text)) text = text.replace(DANGLING, "");
+  return `${text.trimEnd()},`;
+}
+
+/** Clips on a word boundary and never leaves a dangling conjunction behind. */
+function clip(value: string, max: number) {
+  let text = value.replace(/\s+/g, " ").trim();
+  if (text.length <= max) return text;
+  text = text.slice(0, max);
+  const space = text.lastIndexOf(" ");
+  if (space > max * 0.6) text = text.slice(0, space);
+  text = text.replace(/[,;:.-]+$/, "");
+  while (DANGLING.test(text)) text = text.replace(DANGLING, "");
+  return `${text.trimEnd()}…`;
+}
+
+function firstSentence(value: string) {
+  return sentences(value.replace(/\s+/g, " "))[0] ?? value.trim();
+}
+
+/** Splits a request into the thing asked for and the reason it is wanted. */
+function splitRequest(raw: string): { subject: string; purpose: string } {
+  const lines = raw
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const first = (lines.find((l) => !l.startsWith("#")) ?? "").replace(/^[-*]\s*/, "").replace(/^#+\s*/, "");
+  const marker = first.search(/\s+(so that|so we can|so i can|so you can|so they can|in order to|to be able to|because)\b/i);
+  const head = marker > 0 ? first.slice(0, marker) : first;
+  const tail = marker > 0 ? first.slice(marker).replace(/^\s*(so that|so we can|so i can|so you can|so they can|in order to|to be able to|because)\s+/i, "") : "";
+
+  const subject = clip(
+    head
+      .replace(
+        /^(please\s+)?(can|could|would)\s+(we|you|i)\s+(please\s+)?(add|create|build|get|have|need|want|like|see)?\s*/i,
+        ""
+      )
+      .replace(/^(please\s+)?(we|i)\s+(need|want|would like|require|must|should)\s+(to\s+)?(add|create|build|have|get|see|be able to)?\s*/i, "")
+      .replace(/^(please\s+)?(add|create|build|allow|enable|show|give|provide|let|display|import|export|track|plan|forecast)\s+/i, "$2 ")
+      .replace(/^(a|an|the)\s+/i, "$1 ")
+      .replace(/[.!?,;:]+$/, "")
+      .trim(),
+    90
+  );
+  const purpose = clip(tail.replace(/[.!?]+$/, "").trim(), 140);
+  return { subject: subject || "this change", purpose };
+}
+
+/** The thing being asked for, with leading request phrasing removed. */
+function subjectOf(raw: string): string {
+  return splitRequest(raw).subject;
+}
+
+/** Turns the "so that …" clause into a verb phrase, e.g. "review and arrange resources". */
+function purposeOf(raw: string): string {
+  const purpose = splitRequest(raw).purpose;
+  if (!purpose) return "";
+  return purpose.replace(/^(we|i|you|they)\s+(can|could|would|need to|want to)\s+/i, "").trim();
+}
+
+/**
+ * Produces 1–3 candidate values for every field the studio can draft.
+ *
+ * Deliberately deterministic and local: no operational data leaves the server
+ * (see docs/DECISIONS.md #12). Suggestions are *options* — the author accepts,
+ * edits or ignores each one, and any manual edit wins from that point on.
+ */
+export function suggestEnhancementFields(input: SuggestionInput): EnhancementSuggestions {
+  const raw = (input.raw || "").trim();
+  const plain = raw.replace(/[#*_>`]/g, " ").replace(/\s+/g, " ").trim();
+  const parts = sentences(plain);
+  const lower = `${raw} ${input.area ?? ""}`.toLowerCase();
+  const matches = KEYWORD_MAP.filter((k) => k.test.test(lower));
+  const areaLabel = input.area || matches[0]?.area || "QA Calendar";
+  const { subject: rawSubject, purpose } = splitRequest(raw);
+  const subject = rawSubject || "this change";
+  const shortSubject = clip(subject, 70);
+  const reason = purposeOf(raw);
+  const audience = /manager|head of|lead/i.test(raw)
+    ? "Managers"
+    : /admin/i.test(raw)
+      ? "Administrators"
+      : /exec|coo|director/i.test(raw)
+        ? "Executives"
+        : "The QA team";
+
+  const imperative = parts.filter((s) =>
+    /^(add|allow|enable|build|create|support|show|surface|integrate|make|provide|display|let|import|export|notify|replace|give|track|plan|forecast|schedule)\b/i.test(
+      s
+    )
+  );
+  const modal = parts.filter((s) => /\b(should|must|need|needs|required|would like|want)\b/i.test(s));
+  const requirementSource = [...new Set([...imperative, ...modal])].slice(0, 6);
+
+  const outcomeClause =
+    input.outcome?.trim() ||
+    (reason ? `${reason}` : "") ||
+    `keep ${areaLabel.toLowerCase()} current without a spreadsheet hand-off`;
+
+  // ---- title ---------------------------------------------------------------
+  const titleBase = subject.charAt(0).toUpperCase() + subject.slice(1);
+  const titles = unique([
+    clip(titleBase, 110),
+    clip(`${areaLabel} — ${shortSubject}`, 110),
+    ...(reason ? [clip(`${titleBase} so we can ${trimWords(reason, 60)}`, 110)] : []),
+  ]);
+
+  // ---- brief ---------------------------------------------------------------
+  const role = audience === "The QA team" ? "a QA engineer" : `a ${audience.toLowerCase().replace(/s$/, "")}`;
+  const briefs = unique([
+    clip(parts.slice(0, 2).join(" ") || `Improve ${areaLabel.toLowerCase()}: ${subject}.`, 420),
+    clip(`As ${role}, I want ${subject} so I can ${reason || outcomeClause}.`, 420),
+    clip(`${titleBase}. Raised against ${areaLabel}${input.departmentName ? ` for ${input.departmentName}` : ""}.`, 420),
+  ]);
+
+  // ---- requirements --------------------------------------------------------
+  // Start from the request itself, then fall back to the house baseline.
+  const requested = [...new Set([...imperative, ...modal])]
+    .map((sentence) => sentence.replace(/^[-*]\s*/, "").replace(/\s+/g, " ").trim())
+    .map((sentence) => (sentence.endsWith(".") ? sentence : `${sentence}.`))
+    .filter((sentence) => !new RegExp(`^${subject.slice(0, 24)}`, "i").test(sentence) || sentence.length < 120);
+  const derived = [`- Deliver ${subject}.`];
+  if (reason) derived.push(`- ${audience} must be able to ${reason}.`);
+  const functional = [...new Set([...derived, ...requested.map((item) => `- ${item}`)])].slice(0, 5).join("\n");
+  const nonFunctional = [
+    `- Roles: available to editor and above; read-only for viewer, holistic for exec/admin.`,
+    `- Data: reuse the existing tables and migration path — no parallel spreadsheet.`,
+    `- Audit: every write records actor, before/after and the stable tab/section ID.`,
+    `- Validation: new rules land in the Data Quality catalogue with a severity.`,
+    `- Performance: the view must render for a full fiscal month in under a second.`,
+  ].join("\n");
+  const prioritised = [
+    `**Must**\n${derived.map((item) => (item.endsWith(".") ? item : `${item}.`)).join("\n")}`,
+    `**Should**\n${requested
+      .slice(0, 2)
+      .map((s) => `- ${s.replace(/^[-*]\s*/, "")}`)
+      .join("\n") || `- Keep the existing behaviour as the default until the change is accepted.`}`,
+    `**Could**\n- Surface the same figure on the dashboard once the base view is stable.`,
+  ].join("\n\n");
+  const requirements = unique([functional, nonFunctional, prioritised]);
+
+  // ---- impacts -------------------------------------------------------------
+  const systemImpacts = (matches.length ? matches.map((m) => m.impact) : [`Touches ${areaLabel}; confirm which tabs and sections are affected.`])
+    .map((i) => `- ${i}`)
+    .join("\n");
+  const peopleImpacts = [
+    `- People: ${audience} change how they prepare the monthly view — sticky-note guidance must be re-drafted.`,
+    `- Process: the step this replaces should be removed from the workbook so there is one source of truth.`,
+    `- Training: add a What's New entry naming the affected tab and section IDs.`,
+  ].join("\n");
+  const dataImpacts = [
+    `- Reporting: figures derived from this area must stay traceable to the source record.`,
+    `- Capacity / FTE: if the change alters scheduled work, re-check the FTE calendar for the affected month.`,
+    `- Integrations: exports or notifications that read this area need the same rule applied.`,
+  ].join("\n");
+  const impacts = unique([systemImpacts, peopleImpacts, dataImpacts]);
+
+  // ---- expected outcome ----------------------------------------------------
+  const expectedOutcome = unique([
+    input.outcome?.trim() || "",
+    `${titleBase} is available inside the app${reason ? `, so ${audience.charAt(0).toLowerCase()}${audience.slice(1)} can ${clip(reason, 110)}` : ""} without a spreadsheet hand-off and with an audit trail behind every figure.`,
+    `${areaLabel} decisions are made from live data: every number can be traced to the record it came from, for ${input.departmentName ?? "the department"}.`,
+  ]);
+
+  // ---- success criteria ----------------------------------------------------
+  const deliveryCriteria = [
+    `- Delivered behind the existing role model (viewer / editor / manager / exec / admin) with no data leakage.`,
+    `- Verified for the current fiscal year with month-over-quarter and holiday behaviour intact.`,
+    `- Documented in What's New with the affected tab and section IDs.`,
+    `- Automated tests cover the happy path and the failure/recovery path.`,
+  ].join("\n");
+  const measurableCriteria = [
+    `- The new behaviour is used for two consecutive monthly planning cycles without a manual workaround.`,
+    `- Every figure shown is reproducible from the source records by a reviewer.`,
+    `- No new row enters the Data Quality queue as a result of the change.`,
+  ].join("\n");
+  const operationalCriteria = [
+    `- Sticky-note guidance on each affected section is re-drafted and dated.`,
+    `- The affected tab/section IDs are listed on the proposal and unchanged after delivery.`,
+    `- A reviewer other than the author can complete the flow unaided.`,
+  ].join("\n");
+  const successCriteria = unique([deliveryCriteria, measurableCriteria, operationalCriteria]);
+
+  // ---- outcome hint (the "outcome you want" field) -------------------------
+  const outcomes = unique([
+    input.outcome?.trim() || "",
+    `${audience} can see ${subject} without leaving the app.`,
+    ...(reason ? [`${audience} can ${trimWords(reason, 70)} from live data.`] : []),
+    `${areaLabel} is planned from live data instead of a copied spreadsheet.`,
+  ]);
+
+  // ---- impacted tab / section IDs ------------------------------------------
+  const ranked = matchSections(raw, input.area, input.catalogue ?? []);
+  const sectionOptions = unique([
+    ranked.slice(0, 1).map((r) => r.id).join(", "),
+    ranked.slice(0, 2).map((r) => r.id).join(", "),
+    ranked.slice(0, 3).map((r) => r.id).join(", "),
+  ]);
+
+  // ---- markdown handover ---------------------------------------------------
+  const markdown = unique([
+    buildHandover({
+      title: input.title?.trim() || titles[0],
+      brief: input.brief?.trim() || briefs[0],
+      requirements: input.requirements?.trim() || requirements[0],
+      impacts: input.impacts?.trim() || impacts[0],
+      expectedOutcome: input.expectedOutcome?.trim() || expectedOutcome[0],
+      successCriteria: input.successCriteria?.trim() || successCriteria[0],
+      sections: input.sections?.trim() || sectionOptions[0],
+      raw,
+      areaLabel,
+      submittedBy: input.submittedBy,
+    }),
+  ]);
+
+  return {
+    outcome: outcomes,
+    sections: sectionOptions,
+    title: titles,
+    brief: briefs,
+    requirements,
+    impacts,
+    expectedOutcome,
+    successCriteria,
+    markdown,
+    provider: process.env.AI_PROVIDER || "local",
+    area: areaLabel,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+/** The markdown handover draft shown (and editable) in the studio. */
+export function buildHandover(input: {
+  title: string;
+  brief: string;
+  requirements: string;
+  impacts: string;
+  expectedOutcome: string;
+  successCriteria: string;
+  sections?: string;
+  raw?: string;
+  areaLabel?: string;
+  submittedBy?: string;
+}): string {
+  return [
+    `# ${input.title || "Untitled enhancement"}`,
+    "",
+    "## What needs to change",
+    input.raw?.trim() || input.brief || "_Describe the problem in the studio before exporting._",
+    "",
+    "## Brief",
+    input.brief || "_To be confirmed_",
+    "",
+    "## Requirements",
+    input.requirements || "_To be confirmed_",
+    "",
+    "## Impacts",
+    input.impacts || "_To be confirmed_",
+    "",
+    "## Expected outcome",
+    input.expectedOutcome || "_To be confirmed_",
+    "",
+    "## Success criteria",
+    input.successCriteria || "_To be confirmed_",
+    "",
+    input.sections ? `**Affected IDs:** ${input.sections}\n` : "",
+    input.areaLabel ? `_Area: ${input.areaLabel}${input.submittedBy ? ` · raised by ${input.submittedBy}` : ""}_\n` : "",
+    "_Drafted by the HFM QA Calendar assistant. Review and edit every section before submitting._",
+  ]
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function suggestSectionNote(sectionId: string, viewer: Viewer): string {
   const month = capacityMonth(viewer);
   const stats = pipelineStats(listPipeline(viewer));
@@ -258,6 +599,10 @@ export function suggestSectionNote(sectionId: string, viewer: Viewer): string {
     "sec.calendar.grid": `AI guidance · Showing ${activities.length} active activities in ${month.label}. Click any block to open its planned vs actual dates.`,
     "sec.pipeline.availability": `AI guidance · ${stats.eligible} eligible recording days, ${stats.blocked} blocked by QA overlaps. TEST records (${stats.test}) are excluded from these numbers.`,
     "sec.capacity.grid": `AI guidance · ${month.people.length} people in scope, ${month.totals.working_days} working days. Edit hours inline; 4-hour and 7.6-hour days are both valid.`,
+    "sec.fte.filters": `AI guidance · Scope defaults to the QA department with recording rows excluded. Quarter view is useful for contractor planning; month view is for the stand-up.`,
+    "sec.fte.summary": `AI guidance · Demand is ${month.totals.fte_demand} FTE against ${month.people.length} people in ${month.label}. A negative gap is a request for people, not a performance signal.`,
+    "sec.fte.grid": `AI guidance · Read the daily total row first. Anything above the team headcount needs a decision before the month starts; idle days are where pulled-forward work goes.`,
+    "sec.fte.resources": `AI guidance · Variance is measured against 1.0 FTE per person. Someone over 1.0 on several days is the first conversation when re-sequencing.`,
     "sec.reporting.bugs": "AI guidance · Overall bug status is derived from service links. One outstanding link keeps a shared bug open.",
     "sec.releases.pqu": "AI guidance · Parsed date ranges are flagged rather than corrected. Confirm chronology before publishing a train.",
     "sec.enhancements.intake": "AI guidance · Describe the problem and the outcome. The assistant fills the structure; you stay the author.",

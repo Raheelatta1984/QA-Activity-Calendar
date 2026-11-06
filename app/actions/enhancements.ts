@@ -7,13 +7,63 @@ import { all, get, run } from "@/lib/db";
 import { canEdit, getViewer } from "@/lib/access";
 import { uid } from "@/lib/ids";
 import { recordAudit } from "@/lib/audit";
-import { draftEnhancement, type EnhancementDraft } from "@/lib/ai";
+import { draftEnhancement, suggestEnhancementFields, type EnhancementDraft, type EnhancementSuggestions } from "@/lib/ai";
 import { isoToday } from "@/lib/dates";
 
 export type DraftState = { draft?: EnhancementDraft; error?: string };
 export type EnhancementState = { ok?: boolean; error?: string; ref?: string };
+export type SuggestionState = { suggestions?: EnhancementSuggestions; error?: string };
 
 const VAULT = path.join(process.cwd(), "enhancements");
+
+/**
+ * Live field suggestions for the studio.
+ *
+ * Called (debounced) while the author types the "what needs to change" text.
+ * It returns 1–3 candidate values per field, computed locally from the same
+ * deterministic engine — never a hosted model — and the client only ever
+ * applies a suggestion to a field the author has not edited.
+ */
+export async function suggestEnhancementFieldsAction(input: {
+  raw: string;
+  area?: string;
+  outcome?: string;
+  title?: string;
+  brief?: string;
+  requirements?: string;
+  impacts?: string;
+  expectedOutcome?: string;
+  successCriteria?: string;
+  sections?: string;
+}): Promise<SuggestionState> {
+  const viewer = await getViewer();
+  const raw = String(input.raw ?? "").trim();
+  if (raw.length < 12) return { error: "Keep typing — suggestions start once the request is a sentence or more." };
+
+  const catalogue = all<{ id: string; label: string; tab_id: string; tab_label: string }>(
+    `SELECT s.id, s.label, s.tab_id, t.label AS tab_label
+       FROM sections s JOIN tabs t ON t.id = s.tab_id
+      WHERE s.enabled = 1 AND t.enabled = 1
+      ORDER BY t.sort_order, s.sort_order`
+  ).map((row) => ({ id: row.id, label: row.label, tabId: row.tab_id, tabLabel: row.tab_label }));
+
+  const suggestions = suggestEnhancementFields({
+    raw,
+    area: input.area,
+    outcome: input.outcome,
+    title: input.title,
+    brief: input.brief,
+    requirements: input.requirements,
+    impacts: input.impacts,
+    expectedOutcome: input.expectedOutcome,
+    successCriteria: input.successCriteria,
+    sections: input.sections,
+    departmentName: viewer.org.deptById.get(viewer.person.department_id ?? "")?.name,
+    submittedBy: viewer.person.name,
+    catalogue,
+  });
+  return { suggestions };
+}
 
 function slugify(value: string) {
   return value
@@ -67,6 +117,12 @@ export async function saveEnhancementAction(_prev: EnhancementState, formData: F
   const existing = get<any>(`SELECT * FROM enhancements WHERE id = ?`, id);
   const ref = existing?.ref ?? nextRef();
   const rawMarkdown = String(formData.get("markdown") ?? "").trim();
+  // Fields the author accepted from the assistant (provenance, not authorship).
+  const aiFields = String(formData.get("ai_fields") ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, 12);
 
   const payload = {
     title,
@@ -97,8 +153,11 @@ export async function saveEnhancementAction(_prev: EnhancementState, formData: F
     submitted_by: viewer.person.name,
     submitted_on: isoToday(),
     app_sections: String(formData.get("sections") ?? ""),
+    ai_fields: aiFields.length ? aiFields.join(", ") : "",
     source: "HFM QA Calendar — Future Enhancements",
-  })}${markdown}\n\n---\n\n_Generated from the in-app enhancement vault. Review with every change set and archive once built and tested._\n`;
+  })}${markdown}\n\n---\n\n_Generated from the in-app enhancement vault. Fields drafted by the local assistant: ${
+    aiFields.length ? aiFields.join(", ") : "none"
+  }. Review with every change set and archive once built and tested._\n`;
 
   try {
     fs.mkdirSync(VAULT, { recursive: true });
@@ -110,7 +169,7 @@ export async function saveEnhancementAction(_prev: EnhancementState, formData: F
   if (existing) {
     run(
       `UPDATE enhancements SET title = ?, brief = ?, requirements = ?, impacts = ?, expected_outcome = ?, success_criteria = ?,
-         markdown = ?, status = ?, department_id = ?, github_path = ?, updated_at = datetime('now') WHERE id = ?`,
+         markdown = ?, status = ?, department_id = ?, github_path = ?, ai_fields = ?, updated_at = datetime('now') WHERE id = ?`,
       payload.title,
       payload.brief,
       payload.requirements,
@@ -121,6 +180,7 @@ export async function saveEnhancementAction(_prev: EnhancementState, formData: F
       payload.status,
       payload.department_id,
       relativePath,
+      aiFields.length ? JSON.stringify(aiFields) : null,
       id
     );
     recordAudit({
@@ -131,13 +191,13 @@ export async function saveEnhancementAction(_prev: EnhancementState, formData: F
       entityId: id,
       before: existing.title,
       after: payload.title,
-      meta: { ref, relativePath },
+      meta: { ref, relativePath, aiFields },
     });
   } else {
     run(
       `INSERT INTO enhancements (id, ref, title, brief, requirements, impacts, expected_outcome, success_criteria, markdown,
-         status, github_path, submitted_by, department_id, ai_title, ai_model, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+         status, github_path, submitted_by, department_id, ai_title, ai_model, ai_fields, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
       id,
       ref,
       payload.title,
@@ -152,7 +212,8 @@ export async function saveEnhancementAction(_prev: EnhancementState, formData: F
       viewer.person.id,
       payload.department_id,
       String(formData.get("ai_title") ?? "") || null,
-      String(formData.get("ai_model") ?? "") || null
+      String(formData.get("ai_model") ?? "") || null,
+      aiFields.length ? JSON.stringify(aiFields) : null
     );
     recordAudit({
       actorId: viewer.person.id,
@@ -161,7 +222,7 @@ export async function saveEnhancementAction(_prev: EnhancementState, formData: F
       entity: "enhancement",
       entityId: id,
       after: { ref, title: payload.title },
-      meta: { relativePath },
+      meta: { relativePath, aiFields },
     });
   }
 

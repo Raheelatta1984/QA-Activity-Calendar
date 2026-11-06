@@ -11,6 +11,17 @@ export const dynamic = "force-dynamic";
 
 const FLOW = ["Submitted", "Reviewing", "Accepted", "Building", "Built", "Archived"] as const;
 
+/** Fields the author accepted from the assistant, stored as JSON on the record. */
+function parseAiFields(value: string | null): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 const STATUS_BADGE: Record<string, string> = {
   Submitted: "badge-blue",
   Reviewing: "badge-amber",
@@ -113,6 +124,15 @@ export default async function EnhancementsPage() {
                     </span>
                     {item.department_name ? <span className="badge badge-slate">{item.department_name}</span> : null}
                     <span className="badge badge-slate">{formatDate(item.created_at.slice(0, 10))}</span>
+                    {item.ai_fields ? (
+                      <span
+                        className="badge badge-purple"
+                        title={`Drafted by the local assistant: ${parseAiFields(item.ai_fields).join(", ")}`}
+                      >
+                        <Icon name="sparkles" size={11} /> AI-drafted: {parseAiFields(item.ai_fields).slice(0, 3).join(", ")}
+                        {parseAiFields(item.ai_fields).length > 3 ? ` +${parseAiFields(item.ai_fields).length - 3}` : ""}
+                      </span>
+                    ) : null}
                     {item.github_path ? (
                       <span className="badge badge-green" title={item.github_path}>
                         <Icon name="branch" size={11} /> markdown

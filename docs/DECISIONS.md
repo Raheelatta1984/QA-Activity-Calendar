@@ -90,3 +90,15 @@ Hours conversion uses a configurable day length: default **7.6h** (source capaci
 **Why:** the first Vercel deployment failed with a generic "server-side exception" because the bundle filesystem is read-only and the runtime could not find or create the database. The app must start cleanly with no configuration.
 **Consequence:** on Vercel the demo is fully functional but not a system of record — data is per instance and resets. Postgres is the documented path to durable storage.
 **Open:** which managed Postgres (Neon/Vercel Postgres/Supabase) and who owns backups/retention. Until that is chosen, do not put production data in the serverless demo.
+
+## 22. FTE calendar — demand per day, not effort spread over a window
+**Decision:** the FTE calendar (`tab.fte`) shows, for each planned testing activity, the FTE it needs **on each day** of the selected month or fiscal quarter. A cell is the activity's effective FTE when the day falls inside its inclusive `[start_date, end_date]` window and blank otherwise. Totals are provided per activity (row), per day (column) and for the whole period.
+**Why:** the question being answered is "can we cover Thursday?", not "how big is this piece of work?". Spreading total effort across the window would hide the peak that causes the resourcing problem.
+**Rules:** only Active activities with a valid inclusive range contribute; FTE uses the documented precedence (#6); weekends and NSW holidays are shown but excluded from working-day totals so an empty month is never mistaken for zero work. Recording/pipeline rows are excluded by the "Testing activities only" filter, which is on by default.
+**Supply:** nominal supply is `headcount × working days` less recorded leave and DevOps hours from the capacity planner. It is a planning ceiling, not a productivity target — a large positive gap usually means non-project work is not yet recorded.
+**Open:** should BAU/support time be modelled as an explicit per-person allocation so the gap is tighter? Today it is visible only when recorded in the capacity planner.
+
+## 23. AI drafting is a suggestion, never the author
+**Decision:** the enhancement studio drafts options for the outcome, impacted tab/section IDs, title, brief, requirements, impacts, expected outcome, success criteria and markdown handover in real time as the request is typed. Each field offers 1–3 options. A field the author has typed into is never overwritten; accepted drafts are recorded on the proposal (`enhancements.ai_fields`) and in the markdown front matter.
+**Why:** the request asked for AI-driven drafting that is always reviewable — the author must be able to accept, edit or ignore any suggestion right up to submission.
+**Constraint:** suggestions come from the same deterministic, local engine as the rest of the app (#12). No operational data leaves the server and no hosted model is called.

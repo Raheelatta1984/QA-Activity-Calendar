@@ -2,7 +2,7 @@
 
 Run with `npm test` (Node's built-in test runner via `tsx`). The integration suite runs against an isolated temporary database, so it never touches your working data.
 
-**Last run:** 6 Nov 2026 · Node 22.22.3 · `26 tests, 26 pass, 0 fail` · `npm run typecheck` clean · `npm run build` succeeded.
+**Last run:** 7 Nov 2026 · Node 22.22.3 · `37 tests, 37 pass, 0 fail` · `npm run typecheck` clean · `npm run build` succeeded.
 
 ## Automated suites
 
@@ -34,12 +34,23 @@ Run with `npm test` (Node's built-in test runner via `tsx`). The integration sui
 | 24 | catalogue covers every tab and section with a stable ID | Stable `tab.*` / `sec.*` identifiers |
 | 25 | session tokens are signed, self-contained and tamper-evident | Serverless sessions; tampered/legacy cookies rejected |
 | 26 | migrations are embedded for serverless bundles | Build-time `db:embed` keeps schema available on a read-only filesystem |
+| 27 | FTE is demanded on every inclusive day of an activity and nowhere else | FTE calendar cell rule |
+| 28 | overlapping activities sum per day rather than averaging | FTE calendar daily totals |
+| 29 | headcount needed is whole people, never fractions of a person | FTE calendar resourcing arithmetic |
+| 30 | fiscal quarters start in July and end on the last day of the quarter | FTE calendar quarter scope |
+| 31 | FTE calendar days distinguish weekends and supplied holidays | Working-day totals exclude non-working days |
+| 32 | the studio drafts options for every field, not a single fixed answer | Live enhancement suggestions |
+| 33 | impact suggestions rank real tab and section IDs against the request | Suggested IDs always exist in the catalogue |
+| 34 | the handover keeps every section heading and never invents an ID | Markdown handover draft |
+| 35 | FTE calendar totals reconcile across rows, days and the rollups | Row/day/assignee/group totals agree |
+| 36 | FTE calendar scopes by department, group and quarter | Filters + visibility rules |
+| 37 | recording rows are excluded from the testing-only FTE calendar | Testing-activity filter |
 
 Full test output (abridged):
 
 ```
-# tests 26
-# pass 26
+# tests 37
+# pass 37
 # fail 0
 # duration_ms 1180
 ```
@@ -55,7 +66,8 @@ Full test output (abridged):
 | Pipeline with exclusions | `GET /pipeline` | 200, eligibility, TEST flags, exclusion table |
 | Reporting + derived status | `GET /reporting` | 200, shared defect shows per-service links |
 | Releases / PQU / governance | `GET /releases` | 200, flagged train, deployment parity table |
-| Enhancements studio | `GET /enhancements` | 200, AI draft + vault |
+| FTE calendar | `GET /fte`, `/fte?range=quarter`, `/fte?group=Regression`, `/fte?testing=0`, `/fte?q=regression` | 200 on every scope; matrix, totals row, KPIs and resource rollup render |
+| Enhancements studio | `GET /enhancements` | 200, live AI options + vault |
 | Data quality queue | `GET /validation` | 200, rules + issues + audit |
 | Import dry-run + apply + re-apply | CLI | 4 inserted → 4 skipped (idempotent) |
 | Viewer (read-only) access to all operational tabs | session as `hana.suzuki` | 200 on dashboard, calendar, capacity, pipeline, reporting, releases, enhancements, changelog |

@@ -60,6 +60,22 @@ export const TAB_CATALOGUE: TabSeed[] = [
     ],
   },
   {
+    id: "tab.fte",
+    key: "fte",
+    label: "FTE Calendar",
+    icon: "target",
+    href: "/fte",
+    group_name: "Workspace",
+    description: "Planned activity × day FTE demand with totals, compared against the people available for resourcing.",
+    sort: 25,
+    sections: [
+      { id: "sec.fte.filters", label: "Scope", description: "Period, department, activity group and assignee selectors." },
+      { id: "sec.fte.summary", label: "FTE required vs available", description: "Demand, headcount supply, resourcing gap and over-allocated days." },
+      { id: "sec.fte.grid", label: "Activity × day matrix", description: "FTE per activity per day with totals per row and per column." },
+      { id: "sec.fte.resources", label: "Resource load", description: "Allocated FTE per person and demand by activity group." },
+    ],
+  },
+  {
     id: "tab.pipeline",
     key: "pipeline",
     label: "Pipeline",
@@ -126,10 +142,10 @@ export const TAB_CATALOGUE: TabSeed[] = [
     icon: "sparkles",
     href: "/enhancements",
     group_name: "Improvement",
-    description: "Submit, review and archive enhancement proposals — with a markdown vault for GitHub.",
+    description: "Submit, review and archive enhancement proposals with live AI drafting and a markdown vault for GitHub.",
     sort: 70,
     sections: [
-      { id: "sec.enhancements.intake", label: "Submit a proposal", description: "AI-assisted title, brief, requirements, impacts and success criteria." },
+      { id: "sec.enhancements.intake", label: "Submit a proposal", description: "Live AI options for the outcome, impacted IDs, title, brief, requirements, impacts, expected outcome, success criteria and markdown handover — every field stays editable." },
       { id: "sec.enhancements.vault", label: "Enhancement vault", description: "Submitted, reviewed and archived requests with markdown export." },
     ],
   },
@@ -197,6 +213,75 @@ export const TAB_CATALOGUE: TabSeed[] = [
   },
 ];
 
+/**
+ * Release notes shipped with the code. `ensureReference` writes them on a fresh
+ * database; `ensureCatalogue` adds any version that is missing so an existing
+ * installation still sees new releases in What's New.
+ */
+export const CHANGELOG_ENTRIES: Array<{
+  version: string;
+  title: string;
+  offset: number;
+  type: string;
+  summary: string;
+  items: string[];
+  pr: number | null;
+}> = [
+  {
+    version: "1.0.0",
+    title: "QA Activity Calendar platform goes live",
+    offset: 0,
+    type: "feature",
+    summary: "Complete rebuild of the HFM QA workbook as a persistent, role-aware web application.",
+    items: [
+      "Fiscal QA calendar with year/quarter/month selectors, holiday and current-week highlighting",
+      "Activities CRUD with planned vs actual dates, FTE and progress tracking",
+      "Combined QA + pipeline calendar with overlap suppression and manual exclusions",
+      "Capacity planner, release governance and centralised bug reporting",
+      "Org hierarchy with drag-and-drop, department enable/disable and per-employee views",
+      "AI guidance sticky notes on every tab and section, each with a stable ID",
+      "Future Enhancements vault with AI-drafted briefs and markdown export",
+      "Idempotent import with dry-run reconciliation and validation queue",
+    ],
+    pr: 1,
+  },
+  {
+    version: "1.0.1",
+    title: "Hardening: tab toggles and audit trail",
+    offset: -1,
+    type: "fix",
+    summary: "Disabled tabs no longer appear in navigation; audit events recorded for every write.",
+    items: ["Tab/section enable state respected in the sidebar", "Audit log for activity, capacity and setup changes"],
+    pr: 2,
+  },
+  {
+    version: "1.0.2",
+    title: "What's New panel added",
+    offset: 0,
+    type: "merge",
+    summary: "Every merge now surfaces here so stakeholders can review changes inside the app.",
+    items: ["Changelog viewer on its own tab", "Per-entry PR references"],
+    pr: 3,
+  },
+  {
+    version: "1.1.0",
+    title: "FTE calendar by activity and live AI drafting",
+    offset: 0,
+    type: "feature",
+    summary:
+      "A dedicated FTE calendar shows planned activity × day demand with totals so testing resource can be arranged, and the enhancement studio now drafts every field in real time.",
+    items: [
+      "New FTE Calendar tab (tab.fte): activity × day FTE matrix with per-activity and per-day totals",
+      "FTE vs people-available summary: demand, supply, resourcing gap, over-allocated days and headcount to cover",
+      "Resource load rollup per person and demand split by activity group",
+      "Month or fiscal-quarter scope, department/group/assignee filters, FTE ↔ hours toggle",
+      "Enhancement studio drafts title, brief, requirements, impacts, outcome, success criteria, impacted IDs and the markdown handover live as you type",
+      "Every AI suggestion is optional, replaceable and editable until the proposal is submitted",
+    ],
+    pr: 3,
+  },
+];
+
 export const AI_NOTES: Record<string, string> = {
   "tab.dashboard":
     "AI guidance · Start here for the monthly QA stand-up. Compare FTE demand against occupied capacity before adding work; the two are deliberately different metrics. Anything amber in the insights panel needs a decision this week.",
@@ -218,6 +303,16 @@ export const AI_NOTES: Record<string, string> = {
     "AI guidance · Inactive activities never render. Click a block to open the activity, then edit the plan or record the actual start.",
   "sec.calendar.legend":
     "AI guidance · Colour comes from the colour dictionary so the whole department reads the calendar the same way.",
+  "tab.fte":
+    "AI guidance · This is the resourcing view: which testing activity needs how much FTE on which day, and whether the team can cover it. Read the daily total row first — anything above the headcount needs a decision before the month starts.",
+  "sec.fte.filters":
+    "AI guidance · Scope defaults to the QA department with recording/pipeline rows excluded, so the numbers are testing effort only. Widen to All departments when a shared engineer is loaned across teams.",
+  "sec.fte.summary":
+    "AI guidance · Demand is summed per working day from every active testing activity; supply is headcount less recorded leave and DevOps time. A negative gap is a request for people, not a performance signal.",
+  "sec.fte.grid":
+    "AI guidance · Each cell is the FTE that activity needs on that day — not the total effort spread across the window. Switch to hours when you are arranging part-day cover with a contractor.",
+  "sec.fte.resources":
+    "AI guidance · Variance is measured against 1.0 FTE per person. Someone consistently over 1.0 across several days is the first conversation to have when re-sequencing the month.",
   "tab.pipeline":
     "AI guidance · QA and pipeline labels stay separate. An Active QA overlap blocks a recording day; inactive QA never does.",
   "sec.pipeline.availability":
@@ -904,56 +999,18 @@ export function seedDemoData() {
     });
 
     // ------------------------------------------------------------------ changelog
-    const entries: Array<[string, string, number, string, string, string[], number | null]> = [
-      [
-        "1.0.0",
-        "QA Activity Calendar platform goes live",
-        0,
-        "feature",
-        "Complete rebuild of the HFM QA workbook as a persistent, role-aware web application.",
-        [
-          "Fiscal QA calendar with year/quarter/month selectors, holiday and current-week highlighting",
-          "Activities CRUD with planned vs actual dates, FTE and progress tracking",
-          "Combined QA + pipeline calendar with overlap suppression and manual exclusions",
-          "Capacity planner, release governance and centralised bug reporting",
-          "Org hierarchy with drag-and-drop, department enable/disable and per-employee views",
-          "AI guidance sticky notes on every tab and section, each with a stable ID",
-          "Future Enhancements vault with AI-drafted briefs and markdown export",
-          "Idempotent import with dry-run reconciliation and validation queue",
-        ],
-        1,
-      ],
-      [
-        "1.0.1",
-        "Hardening: tab toggles and audit trail",
-        -1,
-        "fix",
-        "Disabled tabs no longer appear in navigation; audit events recorded for every write.",
-        ["Tab/section enable state respected in the sidebar", "Audit log for activity, capacity and setup changes"],
-        2,
-      ],
-      [
-        "1.0.2",
-        "What's New panel added",
-        -0.5,
-        "merge",
-        "Every merge now surfaces here so stakeholders can review changes inside the app.",
-        ["Changelog viewer on its own tab", "Per-entry PR references"],
-        3,
-      ],
-    ];
-    entries.forEach(([version, title, offset, type, summary, items, pr]) =>
+    CHANGELOG_ENTRIES.forEach((entry) =>
       run(
         `INSERT INTO changelog (id, version, title, date, type, pr_number, summary, items, published)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
         uid("cl"),
-        version,
-        title,
-        d(offset),
-        type,
-        pr,
-        summary,
-        JSON.stringify(items)
+        entry.version,
+        entry.title,
+        d(entry.offset),
+        entry.type,
+        entry.pr,
+        entry.summary,
+        JSON.stringify(entry.items)
       )
     );
 
@@ -980,8 +1037,97 @@ function colourForGroup(group: string): string {
   return map[group] ?? "#4f8cff";
 }
 
+/**
+ * Catalogue sync.
+ *
+ * Tabs, sections and their AI guidance live in code (TAB_CATALOGUE / AI_NOTES)
+ * but are stored in the database so an administrator can disable or relabel
+ * them. This runs on every boot so a new tab added by a later release appears
+ * on existing installations without a destructive re-seed. Enabled flags are
+ * never reset — an administrator's choice always wins.
+ */
+export function ensureCatalogue() {
+  transaction(() => {
+    for (const tab of TAB_CATALOGUE) {
+      run(
+        `INSERT INTO tabs (id, key, label, icon, href, description, group_name, enabled, sort_order, min_role)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           key = excluded.key, label = excluded.label, icon = excluded.icon, href = excluded.href,
+           description = excluded.description, group_name = excluded.group_name, sort_order = excluded.sort_order,
+           min_role = excluded.min_role`,
+        tab.id,
+        tab.key,
+        tab.label,
+        tab.icon,
+        tab.href,
+        tab.description,
+        tab.group_name,
+        tab.sort,
+        tab.min_role ?? "viewer"
+      );
+      tab.sections.forEach((section, index) => {
+        run(
+          `INSERT INTO sections (id, tab_id, label, description, enabled, sort_order) VALUES (?, ?, ?, ?, 1, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             tab_id = excluded.tab_id, label = excluded.label, description = excluded.description,
+             sort_order = excluded.sort_order`,
+          section.id,
+          tab.id,
+          section.label,
+          section.description,
+          (index + 1) * 10
+        );
+      });
+    }
+
+    for (const [scope, content] of Object.entries(AI_NOTES)) {
+      if (!content) continue;
+      const tabId = scope.startsWith("sec.")
+        ? TAB_CATALOGUE.find((t) => t.sections.some((s) => s.id === scope))?.id
+        : scope;
+      if (!tabId) continue;
+      const sectionId = scope.startsWith("sec.") ? scope : null;
+      const exists = get<{ id: string }>(
+        `SELECT id FROM sticky_notes WHERE tab_id = ? AND section_id IS ? AND ai_generated = 1 LIMIT 1`,
+        tabId,
+        sectionId
+      );
+      if (exists) continue;
+      run(
+        `INSERT INTO sticky_notes (id, tab_id, section_id, title, content, colour, ai_generated, pinned, enabled)
+         VALUES (?, ?, ?, ?, ?, ?, 1, 1, 1)`,
+        uid("note"),
+        tabId,
+        sectionId,
+        sectionId ? "AI guidance" : "AI guidance for this tab",
+        content,
+        "#eef2ff"
+      );
+    }
+
+    for (const entry of CHANGELOG_ENTRIES) {
+      const exists = get<{ id: string }>(`SELECT id FROM changelog WHERE version = ? LIMIT 1`, entry.version);
+      if (exists) continue;
+      run(
+        `INSERT INTO changelog (id, version, title, date, type, pr_number, summary, items, published)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        uid("cl"),
+        entry.version,
+        entry.title,
+        d(entry.offset),
+        entry.type,
+        entry.pr,
+        entry.summary,
+        JSON.stringify(entry.items)
+      );
+    }
+  });
+}
+
 export function bootstrapDatabase() {
   const createdReference = ensureReference();
+  ensureCatalogue();
   let createdDemo = false;
   if (process.env.SEED_DEMO_DATA !== "false") {
     createdDemo = seedDemoData();
