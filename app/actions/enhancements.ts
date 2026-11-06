@@ -1,7 +1,5 @@
 "use server";
 
-import fs from "node:fs";
-import path from "node:path";
 import { revalidatePath } from "next/cache";
 import { all, get, run } from "@/lib/db";
 import { canEdit, getViewer } from "@/lib/access";
@@ -9,12 +7,17 @@ import { uid } from "@/lib/ids";
 import { recordAudit } from "@/lib/audit";
 import { draftEnhancement, suggestEnhancementFields, type EnhancementDraft, type EnhancementSuggestions } from "@/lib/ai";
 import { isoToday } from "@/lib/dates";
+import {
+  enhancementFileName,
+  relocateVaultMarkdown,
+  removeVaultMarkdown,
+  renderEnhancementMarkdown,
+  writeVaultMarkdown,
+} from "@/lib/enhancements";
 
 export type DraftState = { draft?: EnhancementDraft; error?: string };
-export type EnhancementState = { ok?: boolean; error?: string; ref?: string };
+export type EnhancementState = { ok?: boolean; error?: string; ref?: string; ephemeral?: boolean };
 export type SuggestionState = { suggestions?: EnhancementSuggestions; error?: string };
-
-const VAULT = path.join(process.cwd(), "enhancements");
 
 /**
  * Live field suggestions for the studio.
@@ -65,14 +68,6 @@ export async function suggestEnhancementFieldsAction(input: {
   return { suggestions };
 }
 
-function slugify(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-}
-
 function nextRef(): string {
   const row = get<{ n: number }>(`SELECT COUNT(*) AS n FROM enhancements`);
   let candidate = (row?.n ?? 0) + 1;
@@ -82,13 +77,6 @@ function nextRef(): string {
     candidate += 1;
   }
   return `ENH-${Date.now()}`;
-}
-
-function frontmatter(meta: Record<string, string | number | null | undefined>) {
-  const lines = Object.entries(meta)
-    .filter(([, value]) => value !== undefined && value !== null && value !== "")
-    .map(([key, value]) => `${key}: "${String(value).replace(/"/g, "'")}"`);
-  return `---\n${lines.join("\n")}\n---\n`;
 }
 
 export async function draftEnhancementAction(_prev: DraftState, formData: FormData): Promise<DraftState> {
@@ -135,36 +123,30 @@ export async function saveEnhancementAction(_prev: EnhancementState, formData: F
     status: String(formData.get("status") ?? "Submitted"),
   };
 
-  const markdown =
-    rawMarkdown ||
-    `# ${title}\n\n## Brief\n${brief}\n\n## Requirements\n${payload.requirements ?? "_To be confirmed_"}\n\n## Impacts\n${
-      payload.impacts ?? "_To be confirmed_"
-    }\n\n## Expected outcome\n${payload.expected_outcome ?? "_To be confirmed_"}\n\n## Success criteria\n${
-      payload.success_criteria ?? "_To be confirmed_"
-    }\n`;
-
-  const fileName = `${ref}-${slugify(title) || "enhancement"}.md`;
-  const relativePath = `enhancements/${fileName}`;
-  const fullPath = path.join(VAULT, fileName);
-  const fileContent = `${frontmatter({
+  const { body: markdown, fileContent } = renderEnhancementMarkdown({
     ref,
     title,
     status: payload.status,
-    submitted_by: viewer.person.name,
-    submitted_on: isoToday(),
-    app_sections: String(formData.get("sections") ?? ""),
-    ai_fields: aiFields.length ? aiFields.join(", ") : "",
-    source: "HFM QA Calendar — Future Enhancements",
-  })}${markdown}\n\n---\n\n_Generated from the in-app enhancement vault. Fields drafted by the local assistant: ${
-    aiFields.length ? aiFields.join(", ") : "none"
-  }. Review with every change set and archive once built and tested._\n`;
+    submittedBy: viewer.person.name,
+    submittedOn: isoToday(),
+    sections: String(formData.get("sections") ?? ""),
+    aiFields,
+    rawMarkdown,
+    brief,
+    requirements: payload.requirements,
+    impacts: payload.impacts,
+    expectedOutcome: payload.expected_outcome,
+    successCriteria: payload.success_criteria,
+  });
 
-  try {
-    fs.mkdirSync(VAULT, { recursive: true });
-    fs.writeFileSync(fullPath, fileContent, "utf8");
-  } catch (error) {
-    return { error: `Could not write the markdown vault: ${(error as Error).message}` };
-  }
+  const fileName = enhancementFileName(ref, title);
+  const vaultWrite = writeVaultMarkdown({
+    fileName,
+    content: fileContent,
+    archived: payload.status === "Archived",
+    previousPath: existing?.github_path ?? null,
+  });
+  const relativePath = vaultWrite.relativePath;
 
   if (existing) {
     run(
@@ -191,7 +173,7 @@ export async function saveEnhancementAction(_prev: EnhancementState, formData: F
       entityId: id,
       before: existing.title,
       after: payload.title,
-      meta: { ref, relativePath, aiFields },
+      meta: { ref, relativePath, aiFields, vaultEphemeral: vaultWrite.ephemeral },
     });
   } else {
     run(
@@ -222,12 +204,13 @@ export async function saveEnhancementAction(_prev: EnhancementState, formData: F
       entity: "enhancement",
       entityId: id,
       after: { ref, title: payload.title },
-      meta: { relativePath, aiFields },
+      meta: { relativePath, aiFields, vaultEphemeral: vaultWrite.ephemeral },
     });
   }
 
   revalidatePath("/enhancements");
-  return { ok: true, ref };
+  revalidatePath("/", "layout");
+  return { ok: true, ref, ephemeral: vaultWrite.ephemeral };
 }
 
 export async function setEnhancementStatusAction(formData: FormData): Promise<void> {
@@ -237,7 +220,13 @@ export async function setEnhancementStatusAction(formData: FormData): Promise<vo
   const status = String(formData.get("status") ?? "");
   const allowed = ["Submitted", "Reviewing", "Accepted", "Building", "Built", "Archived", "Rejected"];
   if (!allowed.includes(status)) return;
-  const existing = get<any>(`SELECT * FROM enhancements WHERE id = ?`, id);
+  const existing = get<any>(
+    `SELECT e.*, p.name AS submitted_by_name
+       FROM enhancements e
+       LEFT JOIN people p ON p.id = e.submitted_by
+      WHERE e.id = ?`,
+    id
+  );
   if (!existing) return;
 
   run(
@@ -247,20 +236,30 @@ export async function setEnhancementStatusAction(formData: FormData): Promise<vo
     id
   );
 
-  // Archive the markdown out of the active vault so it is not reviewed again.
-  if (status === "Archived" && existing.github_path) {
-    try {
-      const source = path.join(process.cwd(), existing.github_path);
-      const archiveDir = path.join(VAULT, "archive");
-      fs.mkdirSync(archiveDir, { recursive: true });
-      if (fs.existsSync(source)) {
-        const target = path.join(archiveDir, path.basename(existing.github_path));
-        fs.renameSync(source, target);
-        run(`UPDATE enhancements SET github_path = ? WHERE id = ?`, `enhancements/archive/${path.basename(target)}`, id);
-      }
-    } catch (error) {
-      console.error("[enhancements] archive move failed", error);
-    }
+  // Relocate the markdown into enhancements/archive/ when archived (and back out if reopened),
+  // using the writable /tmp fallback whenever the bundle filesystem is read-only.
+  if (status === "Archived" || existing.status === "Archived") {
+    const { fileContent } = renderEnhancementMarkdown({
+      ref: existing.ref,
+      title: existing.title,
+      status,
+      submittedBy: existing.submitted_by_name ?? viewer.person.name,
+      submittedOn: existing.created_at ? String(existing.created_at).slice(0, 10) : isoToday(),
+      rawMarkdown: existing.markdown,
+      brief: existing.brief,
+      requirements: existing.requirements,
+      impacts: existing.impacts,
+      expectedOutcome: existing.expected_outcome,
+      successCriteria: existing.success_criteria,
+    });
+    const relocated = relocateVaultMarkdown({
+      githubPath: existing.github_path,
+      ref: existing.ref,
+      title: existing.title,
+      status,
+      fallbackContent: fileContent,
+    });
+    run(`UPDATE enhancements SET github_path = ? WHERE id = ?`, relocated.relativePath, id);
   }
 
   recordAudit({
@@ -273,6 +272,7 @@ export async function setEnhancementStatusAction(formData: FormData): Promise<vo
     after: status,
   });
   revalidatePath("/enhancements");
+  revalidatePath("/", "layout");
 }
 
 export async function deleteEnhancementAction(formData: FormData): Promise<void> {
@@ -281,14 +281,7 @@ export async function deleteEnhancementAction(formData: FormData): Promise<void>
   const id = String(formData.get("id") ?? "");
   const existing = get<any>(`SELECT * FROM enhancements WHERE id = ?`, id);
   if (!existing) return;
-  if (existing.github_path) {
-    try {
-      const full = path.join(process.cwd(), existing.github_path);
-      if (fs.existsSync(full)) fs.unlinkSync(full);
-    } catch {
-      /* file cleanup is best-effort */
-    }
-  }
+  removeVaultMarkdown(existing.github_path);
   run(`DELETE FROM enhancements WHERE id = ?`, id);
   recordAudit({
     actorId: viewer.person.id,
@@ -299,26 +292,53 @@ export async function deleteEnhancementAction(formData: FormData): Promise<void>
     before: existing,
   });
   revalidatePath("/enhancements");
+  revalidatePath("/", "layout");
 }
 
 export async function regenerateMarkdownAction(formData: FormData): Promise<void> {
   const viewer = await getViewer();
   if (!canEdit(viewer)) return;
   const id = String(formData.get("id") ?? "");
-  const item = get<any>(`SELECT * FROM enhancements WHERE id = ?`, id);
+  const item = get<any>(
+    `SELECT e.*, p.name AS submitted_by_name
+       FROM enhancements e
+       LEFT JOIN people p ON p.id = e.submitted_by
+      WHERE e.id = ?`,
+    id
+  );
   if (!item) return;
-  const fileName = `${item.ref}-${slugify(item.title) || "enhancement"}.md`;
-  const relativePath = `enhancements/${fileName}`;
-  fs.mkdirSync(VAULT, { recursive: true });
-  const content = `${frontmatter({
+
+  let aiFields: string[] = [];
+  if (item.ai_fields) {
+    try {
+      const parsed = JSON.parse(item.ai_fields);
+      if (Array.isArray(parsed)) aiFields = parsed.filter((v): v is string => typeof v === "string");
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const fileName = enhancementFileName(item.ref, item.title);
+  const { fileContent } = renderEnhancementMarkdown({
     ref: item.ref,
     title: item.title,
     status: item.status,
-    submitted_by: viewer.person.name,
-    submitted_on: isoToday(),
-    source: "HFM QA Calendar — Future Enhancements",
-  })}${item.markdown ?? `# ${item.title}`}\n`;
-  fs.writeFileSync(path.join(VAULT, fileName), content, "utf8");
-  run(`UPDATE enhancements SET github_path = ? WHERE id = ?`, relativePath, id);
+    submittedBy: item.submitted_by_name ?? viewer.person.name,
+    submittedOn: isoToday(),
+    aiFields,
+    rawMarkdown: item.markdown,
+    brief: item.brief,
+    requirements: item.requirements,
+    impacts: item.impacts,
+    expectedOutcome: item.expected_outcome,
+    successCriteria: item.success_criteria,
+  });
+  const written = writeVaultMarkdown({
+    fileName,
+    content: fileContent,
+    archived: item.status === "Archived",
+    previousPath: item.github_path,
+  });
+  run(`UPDATE enhancements SET github_path = ? WHERE id = ?`, written.relativePath, id);
   revalidatePath("/enhancements");
 }

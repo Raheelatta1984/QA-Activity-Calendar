@@ -280,6 +280,20 @@ export const CHANGELOG_ENTRIES: Array<{
     ],
     pr: 3,
   },
+  {
+    version: "1.1.1",
+    title: "Serverless enhancement vault fallback (EROFS fix)",
+    offset: 0,
+    type: "fix",
+    summary:
+      "Submitting, archiving, regenerating or deleting an enhancement on read-only serverless filesystems (Vercel /var/task) now falls back cleanly to a writable /tmp vault instead of failing with EROFS.",
+    items: [
+      "Writable vault resolution falls back to /tmp/enhancements on Vercel and any read-only mount (EROFS/EACCES/EPERM)",
+      "Enhancement submissions always persist to the database and download complete frontmatter Markdown via /api/enhancements/:id",
+      "Archiving, reopening, regenerating and deleting proposals work without cross-device or read-only filesystem errors",
+    ],
+    pr: 4,
+  },
 ];
 
 export const AI_NOTES: Record<string, string> = {

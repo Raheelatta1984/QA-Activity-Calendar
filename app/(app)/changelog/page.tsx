@@ -24,7 +24,7 @@ export default async function ChangelogPage() {
   const admin = canAdmin(viewer);
   const settings = appSettings();
   const ai = aiStatus();
-  const entries = all<any>(`SELECT * FROM changelog WHERE published = 1 ORDER BY date DESC, created_at DESC`);
+  const entries = all<any>(`SELECT * FROM changelog WHERE published = 1 ORDER BY date DESC, created_at DESC, rowid DESC`);
   const migrations = all<{ name: string; applied_at: string }>(`SELECT * FROM _migrations ORDER BY name`);
   const tableCount =
     all<{ n: number }>(`SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`)[0]?.n ?? 0;
@@ -58,7 +58,7 @@ export default async function ChangelogPage() {
       >
         <div className="card-pad stack">
           {entries.map((entry) => {
-            const items = json<{ label: string; detail?: string }[]>(entry.items, []);
+            const items = json<Array<string | { label: string; detail?: string }>>(entry.items, []);
             return (
               <article key={entry.id} style={{ paddingBottom: 16, borderBottom: "1px solid var(--border)" }}>
                 <div className="row" style={{ gap: 8 }}>
@@ -71,9 +71,10 @@ export default async function ChangelogPage() {
                 {entry.summary ? <p className="dim" style={{ fontSize: "0.85rem", marginTop: 6 }}>{entry.summary}</p> : null}
                 {items.length ? (
                   <ul style={{ margin: "8px 0 0", paddingLeft: 20, fontSize: "0.83rem", color: "var(--text-dim)", lineHeight: 1.65 }}>
-                    {items.map((item, index) => (
-                      <li key={`${entry.id}-${index}`}>{item.label}</li>
-                    ))}
+                    {items.map((item, index) => {
+                      const label = typeof item === "string" ? item : item.label;
+                      return label ? <li key={`${entry.id}-${index}`}>{label}</li> : null;
+                    })}
                   </ul>
                 ) : null}
                 {entry.pr_url ? (

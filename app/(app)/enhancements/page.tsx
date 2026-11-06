@@ -1,5 +1,5 @@
 import { getViewer, canEdit } from "@/lib/access";
-import { listEnhancements, vaultFiles } from "@/lib/enhancements";
+import { listEnhancements, vaultFiles, vaultInfo } from "@/lib/enhancements";
 import { formatDate } from "@/lib/dates";
 import { Section } from "@/components/Section";
 import { PageHeader, PageGuidance } from "@/components/PageHeader";
@@ -37,6 +37,7 @@ export default async function EnhancementsPage() {
   const editable = canEdit(viewer);
   const items = listEnhancements();
   const files = vaultFiles();
+  const vault = vaultInfo();
   const active = items.filter((i) => !["Archived", "Rejected"].includes(i.status));
   const archived = items.filter((i) => ["Archived", "Rejected"].includes(i.status));
 
@@ -212,9 +213,19 @@ export default async function EnhancementsPage() {
           <div className="banner info">
             <Icon name="branch" size={15} />
             <span>
-              Vault files are normal Markdown in this repository, so every change set can be reviewed with
-              <code className="mono"> git log -- enhancements/</code>. To push from CI or a workstation:
-              <code className="mono"> git add enhancements && git commit -m &quot;docs: enhancement vault&quot; && git push</code>.
+              {vault.ephemeral ? (
+                <>
+                  Running on a read-only deployment bundle: proposals are saved to this instance&apos;s writable{" "}
+                  <code className="mono">/tmp</code> vault and can be downloaded as frontmatter Markdown from each card to
+                  commit into <code className="mono">enhancements/</code>.
+                </>
+              ) : (
+                <>
+                  Vault files are normal Markdown in this repository, so every change set can be reviewed with
+                  <code className="mono"> git log -- enhancements/</code>. To push from CI or a workstation:
+                  <code className="mono"> git add enhancements && git commit -m &quot;docs: enhancement vault&quot; && git push</code>.
+                </>
+              )}
             </span>
           </div>
 

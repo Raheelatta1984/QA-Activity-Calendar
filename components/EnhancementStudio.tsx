@@ -471,8 +471,21 @@ export function EnhancementStudio({
         ) : null}
         {saveState.ok ? (
           <div className="banner good">
-            <Icon name="check" size={15} /> Saved as <strong>{saveState.ref}</strong> — markdown written to the
-            repository vault.
+            <Icon name="check" size={15} />
+            <span>
+              Saved as <strong>{saveState.ref}</strong> —{" "}
+              {saveState.ephemeral ? (
+                <>
+                  recorded in the enhancement pipeline and written to this instance&apos;s writable vault.{" "}
+                  <a href={`/api/enhancements/${saveState.ref}`} style={{ textDecoration: "underline", fontWeight: 600 }}>
+                    Download Markdown
+                  </a>{" "}
+                  to commit it to <code className="mono">enhancements/</code>.
+                </>
+              ) : (
+                <>markdown written to the repository vault.</>
+              )}
+            </span>
           </div>
         ) : null}
 

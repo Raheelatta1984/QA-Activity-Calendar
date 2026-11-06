@@ -2,7 +2,7 @@
 
 Run with `npm test` (Node's built-in test runner via `tsx`). The integration suite runs against an isolated temporary database, so it never touches your working data.
 
-**Last run:** 7 Nov 2026 · Node 22.22.3 · `37 tests, 37 pass, 0 fail` · `npm run typecheck` clean · `npm run build` succeeded.
+**Last run:** 7 Nov 2026 · Node 22.x · `40 tests, 40 pass, 0 fail` · `npm run typecheck` clean · `npm run build` succeeded.
 
 ## Automated suites
 
@@ -45,14 +45,17 @@ Run with `npm test` (Node's built-in test runner via `tsx`). The integration sui
 | 35 | FTE calendar totals reconcile across rows, days and the rollups | Row/day/assignee/group totals agree |
 | 36 | FTE calendar scopes by department, group and quarter | Filters + visibility rules |
 | 37 | recording rows are excluded from the testing-only FTE calendar | Testing-activity filter |
+| 38 | ephemeral serverless enhancement vault lists seeded and newly submitted proposals | Serverless `/tmp` enhancement vault + DB listing |
+| 39 | enhancement vault falls back cleanly to `/tmp` when the configured or bundle path is read-only | `EROFS`/`EACCES` fallback on submit, archive and delete |
+| 40 | `readEnhancementMarkdown` synthesises frontmatter Markdown when no disk copy exists | Cross-instance `/api/enhancements/:id` download resilience |
 
 Full test output (abridged):
 
 ```
-# tests 37
-# pass 37
+# tests 40
+# pass 40
 # fail 0
-# duration_ms 1180
+# duration_ms 1534
 ```
 
 ## Manual verification performed

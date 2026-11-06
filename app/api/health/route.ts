@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { all, dbInfo, get } from "@/lib/db";
 import { bootstrapDone, bootstrapLastError, ensureBootstrapped } from "@/lib/bootstrap";
+import { vaultInfo } from "@/lib/enhancements";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,12 @@ export async function GET() {
   } catch {
     /* reported below via bootstrapError */
   }
-  const info = { ...dbInfo(), bootstrapDone: bootstrapDone(), bootstrapError: bootstrapLastError() };
+  const info = {
+    ...dbInfo(),
+    vault: vaultInfo(),
+    bootstrapDone: bootstrapDone(),
+    bootstrapError: bootstrapLastError(),
+  };
   try {
     const tables =
       get<{ n: number }>(`SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table'`)?.n ?? 0;
