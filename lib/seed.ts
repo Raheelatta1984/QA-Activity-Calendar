@@ -278,7 +278,7 @@ export const CHANGELOG_ENTRIES: Array<{
       "Enhancement studio drafts title, brief, requirements, impacts, outcome, success criteria, impacted IDs and the markdown handover live as you type",
       "Every AI suggestion is optional, replaceable and editable until the proposal is submitted",
     ],
-    pr: 4,
+    pr: 3,
   },
 ];
 
