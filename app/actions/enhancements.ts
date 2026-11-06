@@ -6,9 +6,11 @@ import { canEdit, getViewer } from "@/lib/access";
 import { uid } from "@/lib/ids";
 import { recordAudit } from "@/lib/audit";
 import { draftEnhancement, suggestEnhancementFields, type EnhancementDraft, type EnhancementSuggestions } from "@/lib/ai";
+import { publishBuildingEnhancement } from "@/lib/github-enhancements";
 import { isoToday } from "@/lib/dates";
 import {
   enhancementFileName,
+  readEnhancementMarkdown,
   relocateVaultMarkdown,
   removeVaultMarkdown,
   renderEnhancementMarkdown,
@@ -16,7 +18,7 @@ import {
 } from "@/lib/enhancements";
 
 export type DraftState = { draft?: EnhancementDraft; error?: string };
-export type EnhancementState = { ok?: boolean; error?: string; ref?: string; ephemeral?: boolean };
+export type EnhancementState = { ok?: boolean; error?: string; ref?: string; ephemeral?: boolean; filename?: string; content?: string };
 export type SuggestionState = { suggestions?: EnhancementSuggestions; error?: string };
 
 /**
@@ -210,16 +212,16 @@ export async function saveEnhancementAction(_prev: EnhancementState, formData: F
 
   revalidatePath("/enhancements");
   revalidatePath("/", "layout");
-  return { ok: true, ref, ephemeral: vaultWrite.ephemeral };
+  return { ok: true, ref, ephemeral: vaultWrite.ephemeral, filename: fileName, content: fileContent };
 }
 
-export async function setEnhancementStatusAction(formData: FormData): Promise<void> {
+export async function setEnhancementStatusAction(_prev: { error?: string; ok?: boolean }, formData: FormData): Promise<{ error?: string; ok?: boolean }> {
   const viewer = await getViewer();
-  if (!canEdit(viewer)) return;
+  if (!canEdit(viewer)) return { error: "Read-only access." };
   const id = String(formData.get("id") ?? "");
   const status = String(formData.get("status") ?? "");
   const allowed = ["Submitted", "Reviewing", "Accepted", "Building", "Built", "Archived", "Rejected"];
-  if (!allowed.includes(status)) return;
+  if (!allowed.includes(status)) return { error: "Invalid status." };
   const existing = get<any>(
     `SELECT e.*, p.name AS submitted_by_name
        FROM enhancements e
@@ -227,7 +229,18 @@ export async function setEnhancementStatusAction(formData: FormData): Promise<vo
       WHERE e.id = ?`,
     id
   );
-  if (!existing) return;
+  if (!existing) return { error: "Enhancement not found on this instance. Refresh and try again." };
+
+  if (status === "Building") {
+    const { content } = readEnhancementMarkdown({ ...existing, status });
+    const base = enhancementFileName(existing.ref, existing.title).replace(/\.md$/, "");
+    const uniqueId = String(existing.id).replace(/[^a-zA-Z0-9-]/g, "-").toLowerCase();
+    try {
+      await publishBuildingEnhancement(`${base}-${uniqueId}.md`, content);
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "GitHub publishing failed." };
+    }
+  }
 
   run(
     `UPDATE enhancements SET status = ?, archived_at = ?, updated_at = datetime('now') WHERE id = ?`,
@@ -273,6 +286,7 @@ export async function setEnhancementStatusAction(formData: FormData): Promise<vo
   });
   revalidatePath("/enhancements");
   revalidatePath("/", "layout");
+  return { ok: true };
 }
 
 export async function deleteEnhancementAction(formData: FormData): Promise<void> {

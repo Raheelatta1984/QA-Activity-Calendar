@@ -125,3 +125,22 @@ data/                Local SQLite database (gitignored) + sample import file
 - Demo data is synthetic and flagged `is_demo`; it is never presented as operational evidence.
 - On serverless hosting (Vercel) the app runs in **demo mode**: SQLite lives on the instance's `/tmp`, the UI shows a "Serverless demo instance" banner, and data resets when the function restarts. Durable storage requires Postgres — see [DEPLOYMENT §3](./docs/DEPLOYMENT.md#3-serverless-deployment-vercel). `GET /api/health` reports the active database path, migrations and seed counts.
 - Where the source behaviour is ambiguous (overlap-parity, display consolidation, multi-assignee shares) the app keeps the safer default and records the open question in [DECISIONS](./docs/DECISIONS.md).
+
+### Approved enhancement handovers
+
+Moving a proposal to **Building** publishes its Markdown to
+`lib/future-enhancements/` using `GITHUB_REPO` and a server-side `GITHUB_TOKEN`
+with contents read/write permission. The transition fails visibly if publishing
+fails; branch protection must allow the configured token to write the target
+branch (`GITHUB_ENHANCEMENTS_BRANCH`, default `main`). No build or PR is created
+automatically. Review active handovers for new requests. To archive one after
+its implementation PR merges, add the exact `Enhancement-Archive:` filename
+line described in [the handover guide](lib/future-enhancements/README.md).
+The workflow does not sync the in-app status or delete branches.
+
+The download button uses the Markdown already rendered on the authenticated page,
+so it does not navigate through a separate serverless instance. This does not
+make SQLite durable: on serverless deployments accounts, sessions and
+proposals can still disappear or differ between instances. `DATABASE_URL` is
+not implemented by this application; a shared durable database adapter is needed
+for reliable production login and proposal state.

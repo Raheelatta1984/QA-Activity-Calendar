@@ -1,0 +1,31 @@
+name: Archive completed enhancement handovers
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+permissions:
+  contents: write
+concurrency:
+  group: enhancement-archive-main
+  cancel-in-progress: false
+jobs:
+  archive:
+    if: github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Archive handovers explicitly named in the merged PR
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          node scripts/archive-enhancements.mjs
+          if ! git diff --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add lib/future-enhancements
+            git commit -m "docs: archive handovers completed by PR #${PR_NUMBER}"
+            git push origin HEAD:main
+          fi

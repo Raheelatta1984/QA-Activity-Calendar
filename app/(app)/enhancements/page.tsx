@@ -1,11 +1,13 @@
 import { getViewer, canEdit } from "@/lib/access";
-import { listEnhancements, vaultFiles, vaultInfo } from "@/lib/enhancements";
+import { listEnhancements, vaultFiles, vaultInfo, readEnhancementMarkdown, enhancementFileName } from "@/lib/enhancements";
 import { formatDate } from "@/lib/dates";
 import { Section } from "@/components/Section";
 import { PageHeader, PageGuidance } from "@/components/PageHeader";
 import { EnhancementStudio } from "@/components/EnhancementStudio";
+import { MarkdownDownload } from "@/components/MarkdownDownload";
+import { EnhancementStatusForm } from "@/components/EnhancementStatusForm";
 import { Icon } from "@/components/icons";
-import { setEnhancementStatusAction, deleteEnhancementAction, regenerateMarkdownAction } from "@/app/actions/enhancements";
+import { deleteEnhancementAction, regenerateMarkdownAction } from "@/app/actions/enhancements";
 
 export const dynamic = "force-dynamic";
 
@@ -91,7 +93,7 @@ export default async function EnhancementsPage() {
         id="sec.enhancements.vault"
         tabId="tab.enhancements"
         title="Enhancement vault"
-        description="Each proposal keeps its markdown in the repository. Moving to Archived relocates the file to enhancements/archive/."
+        description="Building publishes the approved handover to GitHub. Completed handovers are archived after their PR merges."
         path="/enhancements"
         canEdit={editable}
       >
@@ -142,9 +144,7 @@ export default async function EnhancementsPage() {
                   </div>
                 </div>
                 <div className="row" style={{ gap: 6 }}>
-                  <a className="btn btn-sm" href={`/api/enhancements/${item.id}`} title="Download markdown">
-                    <Icon name="download" size={13} />
-                  </a>
+                  <MarkdownDownload {...readEnhancementMarkdown(item)} />
                   {editable ? (
                     <>
                       <form action={regenerateMarkdownAction}>
@@ -187,24 +187,14 @@ export default async function EnhancementsPage() {
                     <strong>Expected outcome:</strong> {item.expected_outcome}
                   </p>
                 ) : null}
+                {item.status === "Building" ? <div className="card-sub mono" style={{ marginTop: 8 }}>GitHub handover: lib/future-enhancements/{enhancementFileName(item.ref, item.title).replace(/\.md$/, "")}-{item.id.replace(/[^a-zA-Z0-9-]/g, "-").toLowerCase()}.md</div> : null}
                 {item.github_path ? (
                   <div className="card-sub mono" style={{ marginTop: 8 }}>{item.github_path}</div>
                 ) : null}
               </details>
 
               {editable ? (
-                <form action={setEnhancementStatusAction} className="row" style={{ marginTop: 10, gap: 6 }}>
-                  <input type="hidden" name="id" value={item.id} />
-                  <select className="select select-sm" name="status" defaultValue={item.status} style={{ maxWidth: 160 }}>
-                    {[...FLOW, "Rejected"].map((s) => (
-                      <option key={s}>{s}</option>
-                    ))}
-                  </select>
-                  <button className="btn btn-sm" type="submit">Move stage</button>
-                  <span className="card-sub">
-                    Archiving moves the markdown to <code className="mono">enhancements/archive/</code>.
-                  </span>
-                </form>
+                <EnhancementStatusForm id={item.id} status={item.status} />
               ) : null}
             </article>
           ))}
@@ -221,7 +211,7 @@ export default async function EnhancementsPage() {
                 </>
               ) : (
                 <>
-                  Vault files are normal Markdown in this repository, so every change set can be reviewed with
+                  Local vault files are not GitHub commits. To commit local proposals, review with
                   <code className="mono"> git log -- enhancements/</code>. To push from CI or a workstation:
                   <code className="mono"> git add enhancements && git commit -m &quot;docs: enhancement vault&quot; && git push</code>.
                 </>

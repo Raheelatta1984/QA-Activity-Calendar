@@ -1,11 +1,14 @@
 import { get } from "@/lib/db";
-import { getViewer } from "@/lib/access";
+import { getSession } from "@/lib/auth";
+import { ensureBootstrapped } from "@/lib/bootstrap";
 import { readEnhancementMarkdown } from "@/lib/enhancements";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
-  const viewer = await getViewer();
+  ensureBootstrapped();
+  const session = await getSession();
+  if (!session) return new Response("Authentication required", { status: 401, headers: { "Cache-Control": "no-store" } });
   const { id } = await context.params;
   const item = get<any>(
     `SELECT e.*, p.name AS submitted_by_name
@@ -22,9 +25,10 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 
   return new Response(content, {
     headers: {
+      "Cache-Control": "private, no-store",
       "Content-Type": "text/markdown; charset=utf-8",
       "Content-Disposition": `attachment; filename="${safeDispositionName}"`,
-      "X-Requested-By": viewer.person.email,
+      "X-Requested-By": session.person.email,
     },
   });
 }
