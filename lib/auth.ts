@@ -1,7 +1,11 @@
 import { cookies } from "next/headers";
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { get, run } from "./db";
-import { uid, token } from "./ids";
+import { token } from "./ids";
+import { encodeSessionToken, decodeSessionToken, signValue } from "./session-token";
+
+export { encodeSessionToken, decodeSessionToken, signValue };
+export type { SessionToken } from "./session-token";
 
 export const SESSION_COOKIE = "qa_session";
 const SESSION_DAYS = 7;
@@ -36,31 +40,32 @@ export function verifyPassword(password: string, stored?: string | null): boolea
   return timingSafeEqual(candidate, expected);
 }
 
-export function signValue(value: string): string {
-  const secret = process.env.SESSION_SECRET || "dev-only-insecure-secret";
-  return createHash("sha256").update(`${value}:${secret}`).digest("hex").slice(0, 32);
-}
-
 export function createSession(personId: string): { id: string; expires: string } {
   const id = token(24);
   const expires = new Date(Date.now() + SESSION_DAYS * 86400000).toISOString();
-  run(
-    `INSERT INTO sessions (id, person_id, expires_at) VALUES (?, ?, ?)`,
-    id,
-    personId,
-    expires
-  );
+  run(`INSERT INTO sessions (id, person_id, expires_at) VALUES (?, ?, ?)`, id, personId, expires);
   return { id, expires };
 }
 
-export async function setSessionCookie(id: string, expires: string) {
+export async function setSessionCookie(input: {
+  sessionId: string;
+  personId: string;
+  expires: string;
+  impersonateId?: string | null;
+}) {
   const store = await cookies();
-  store.set(SESSION_COOKIE, `${id}.${signValue(id)}`, {
+  const value = encodeSessionToken({
+    s: input.sessionId,
+    p: input.personId,
+    e: input.expires,
+    i: input.impersonateId ?? null,
+  });
+  store.set(SESSION_COOKIE, value, {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
     secure: process.env.NODE_ENV === "production",
-    expires: new Date(expires),
+    expires: new Date(input.expires),
   });
 }
 
@@ -69,46 +74,60 @@ export async function clearSessionCookie() {
   store.delete(SESSION_COOKIE);
 }
 
-export async function destroySession() {
-  const store = await cookies();
-  const raw = store.get(SESSION_COOKIE)?.value;
-  if (raw) {
-    const [id] = raw.split(".");
-    run("DELETE FROM sessions WHERE id = ?", id);
-  }
-  await clearSessionCookie();
-}
-
 export async function getSession() {
   const store = await cookies();
   const raw = store.get(SESSION_COOKIE)?.value;
   if (!raw) return null;
-  const [id, sig] = raw.split(".");
-  if (!id || sig !== signValue(id)) return null;
-  const row = get<{
-    session_id: string;
-    person_id: string;
-    impersonate_id: string | null;
-    expires_at: string;
-  }>(
-    `SELECT id AS session_id, person_id, impersonate_id, expires_at FROM sessions WHERE id = ?`,
-    id
+  const parsed = decodeSessionToken(raw);
+  if (!parsed) return null;
+  if (new Date(parsed.e).getTime() < Date.now()) return null;
+
+  // When the row exists (single-instance or warm instance) it is authoritative.
+  const row = get<{ person_id: string; impersonate_id: string | null; expires_at: string }>(
+    `SELECT person_id, impersonate_id, expires_at FROM sessions WHERE id = ?`,
+    parsed.s
   );
-  if (!row) return null;
-  if (new Date(row.expires_at).getTime() < Date.now()) {
-    run("DELETE FROM sessions WHERE id = ?", id);
+  if (row && new Date(row.expires_at).getTime() < Date.now()) {
+    run(`DELETE FROM sessions WHERE id = ?`, parsed.s);
     return null;
   }
-  const person = get<Person>(`SELECT * FROM people WHERE id = ?`, row.person_id);
-  if (!person) return null;
-  const impersonated = row.impersonate_id
-    ? get<Person>(`SELECT * FROM people WHERE id = ?`, row.impersonate_id)
+  const personId = row?.person_id ?? parsed.p;
+  const impersonateId = row ? row.impersonate_id : (parsed.i ?? null);
+
+  const person = get<Person>(`SELECT * FROM people WHERE id = ?`, personId);
+  if (!person || !person.active) return null;
+  const impersonated = impersonateId
+    ? get<Person>(`SELECT * FROM people WHERE id = ?`, impersonateId)
     : undefined;
-  return { sessionId: row.session_id, person, impersonated: impersonated ?? null };
+  return { sessionId: parsed.s, person, impersonated: impersonated ?? null };
+}
+
+export async function destroySession() {
+  const store = await cookies();
+  const raw = store.get(SESSION_COOKIE)?.value;
+  if (raw) {
+    const parsed = decodeSessionToken(raw);
+    if (parsed) run(`DELETE FROM sessions WHERE id = ?`, parsed.s);
+  }
+  await clearSessionCookie();
 }
 
 export async function setImpersonation(personId: string | null) {
-  const session = await getSession();
-  if (!session) return;
-  run(`UPDATE sessions SET impersonate_id = ? WHERE id = ?`, personId, session.sessionId);
+  const store = await cookies();
+  const raw = store.get(SESSION_COOKIE)?.value;
+  if (!raw) return;
+  const parsed = decodeSessionToken(raw);
+  if (!parsed) return;
+  const row = get<{ person_id: string; expires_at: string }>(
+    `SELECT person_id, expires_at FROM sessions WHERE id = ?`,
+    parsed.s
+  );
+  if (row) run(`UPDATE sessions SET impersonate_id = ? WHERE id = ?`, personId, parsed.s);
+  // Re-sign so the preview survives a cold start on serverless storage.
+  await setSessionCookie({
+    sessionId: parsed.s,
+    personId: row?.person_id ?? parsed.p,
+    expires: row?.expires_at ?? parsed.e,
+    impersonateId: personId,
+  });
 }

@@ -2,7 +2,7 @@
   "name": "hfm-qa-calendar",
   "version": "1.0.0",
   "private": true,
-  "description": "AI-powered QA Activity Calendar \u2014 activities, capacity, pipeline, release governance and continuous improvement.",
+  "description": "AI-powered QA Activity Calendar — activities, capacity, pipeline, release governance and continuous improvement.",
   "scripts": {
     "dev": "next dev -H 0.0.0.0 -p 3000",
     "build": "next build",
@@ -15,7 +15,10 @@
     "typecheck": "tsc --noEmit",
     "lint": "next lint",
     "db:backup": "tsx scripts/backup.ts",
-    "catalogue": "tsx scripts/catalogue.ts"
+    "catalogue": "tsx scripts/catalogue.ts",
+    "db:embed": "node scripts/embed-migrations.mjs",
+    "predev": "npm run db:embed --silent",
+    "prebuild": "npm run db:embed --silent"
   },
   "dependencies": {
     "next": "^15.5.29",
@@ -30,7 +33,7 @@
     "typescript": "5.7.2"
   },
   "engines": {
-    "node": ">=22.5.0"
+    "node": "22.x"
   },
   "keywords": [
     "qa",

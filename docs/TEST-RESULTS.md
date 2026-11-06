@@ -2,7 +2,7 @@
 
 Run with `npm test` (Node's built-in test runner via `tsx`). The integration suite runs against an isolated temporary database, so it never touches your working data.
 
-**Last run:** 6 Nov 2026 · Node 22.22.3 · `24 tests, 24 pass, 0 fail` · `npm run typecheck` clean · `npm run build` succeeded.
+**Last run:** 6 Nov 2026 · Node 22.22.3 · `26 tests, 26 pass, 0 fail` · `npm run typecheck` clean · `npm run build` succeeded.
 
 ## Automated suites
 
@@ -32,12 +32,14 @@ Run with `npm test` (Node's built-in test runner via `tsx`). The integration sui
 | 22 | eachDay never loops past a reversed range | Date helper safety |
 | 23 | every tab and section carries an AI guidance note | AI sticky note coverage (no section left without guidance) |
 | 24 | catalogue covers every tab and section with a stable ID | Stable `tab.*` / `sec.*` identifiers |
+| 25 | session tokens are signed, self-contained and tamper-evident | Serverless sessions; tampered/legacy cookies rejected |
+| 26 | migrations are embedded for serverless bundles | Build-time `db:embed` keeps schema available on a read-only filesystem |
 
 Full test output (abridged):
 
 ```
-# tests 24
-# pass 24
+# tests 26
+# pass 26
 # fail 0
 # duration_ms 1180
 ```
@@ -59,6 +61,9 @@ Full test output (abridged):
 | Viewer (read-only) access to all operational tabs | session as `hana.suzuki` | 200 on dashboard, calendar, capacity, pipeline, reporting, releases, enhancements, changelog |
 | Production build | `npm run build` | Compiled successfully, 14 routes |
 | Type safety | `npm run typecheck` | No errors |
+| Serverless simulation (`VERCEL=1`, fresh `/tmp`) | `next start` + `/api/health` | 200: schema 35 tables, seed 12 people, `ephemeral: true` |
+| Read-only configured DB path (`DATABASE_FILE=/sys/qa/calendar.db`) | `next start` + `/api/health` | Warns, falls back to `/tmp/qa-calendar.db`, pages 200 |
+| Stateless session across instances | signed cookie with no `sessions` row | Dashboard 200; tampered cookie and no cookie both 307 → `/login` |
 
 ## Acceptance criteria from the handover
 

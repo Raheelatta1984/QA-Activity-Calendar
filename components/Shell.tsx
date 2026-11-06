@@ -31,6 +31,7 @@ export function Shell({
   version,
   departments,
   activeDepartmentId,
+  ephemeral,
   children,
 }: {
   tabs: ShellTab[];
@@ -41,6 +42,7 @@ export function Shell({
   version: string;
   departments: { id: string; name: string; enabled: number }[];
   activeDepartmentId: string | null;
+  ephemeral?: boolean;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -232,6 +234,17 @@ export function Shell({
                 Exit preview
               </button>
             </form>
+          </div>
+        ) : null}
+
+        {ephemeral ? (
+          <div className="banner warn" style={{ margin: "12px 26px 0", borderRadius: 10 }} role="status">
+            <Icon name="info" size={15} />
+            <span>
+              <strong>Serverless demo instance.</strong> The database lives on this instance&apos;s temporary disk, so
+              changes reset when the function restarts and another instance may show different data. Configure a
+              Postgres database for durable storage — see <span className="mono">docs/DEPLOYMENT.md</span>.
+            </span>
           </div>
         ) : null}
 

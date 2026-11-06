@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import Link from "next/link";
-import { all, get } from "@/lib/db";
+import { all, dbEphemeral, get } from "@/lib/db";
 import { canEdit, getViewer, loadOrg, ROLE_RANK, descendantsOf } from "@/lib/access";
 import { Shell, type ShellPerson, type ShellTab } from "@/components/Shell";
 import { validationSummary } from "@/lib/validation";
@@ -80,6 +80,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       version={latest?.version ? `v${latest.version}` : "v1.0.0"}
       departments={org.departments.map((d) => ({ id: d.id, name: d.name, enabled: d.enabled }))}
       activeDepartmentId={viewer.activeDepartmentId}
+      ephemeral={dbEphemeral}
     >
       {tabBlocked ? (
         <main className="page">
