@@ -30,3 +30,21 @@ IMPORT & SECURITY Import all source records, not cached display grids. Inspect f
 ACCEPTANCE TESTS Verify all 26 source sheets have an explicit migration disposition. Test Active toggles across calendars/FTE/blocking; inclusive dates and holiday/weekend behaviour; FY27 and month-over-quarter filters; regression FTE 1 and 4h/8h=0.5; actual resource capacity; manual pipeline exclusions; shared bug ID once overall/twice across two services; one outstanding link keeps bug open; samples/inactive excluded; unknown timestamps never invented; archived notes preserved; no secret leakage; idempotent import and validation recovery. 
 DELIVERABLES Deliver source-to-target feature map, ERD and migrations, real persistent application, import CLI/dry-run reconciliation, unit/integration tests and results, accessible responsive UI, clear editable versus calculated fields, synthetic demo data kept separate, .env.example without secrets, README/run/deploy commands, backup/recovery notes and unresolved decisions with defaults. No empty placeholder modules. 
 SCOPE & LIMITATIONS This worksheet is a build prompt, not a complete source-data export or guarantee of legacy correctness. Give the AI the workbook and the longer Markdown handover where available. It must inspect all remaining formulas, validation, pivots and formatting. Proposed architecture and roles are recommendations, not claims about existing technology. Source workbook remains unchanged except this newly requested prompt sheet.
+
+option to enable Disabled each tab and sections. build state of the art QA calendar which will in future to extend with other departments so enable or disable departments option always there.
+
+don't forget to build master setup, company entity, departments, organisation hierarchy with drag and drop option.
+ariel or holistic view for higher management which means lowest employee will not be able to see their manager or reporting managers activity but they can see whole team under him activites.
+
+
+employee setups, options to switch between, dashboards focus on progress and capacity by each assigner or FTE.
+
+task can be created and modify and delete, we need to add activities with planned dates and when we actual starts we can update the. centralized big reporting tool we need to add and link to the activity so we can share the progress who manay bugs we reported and how many fixed and closed and how many still outstanding and completion progress with percentage and display the status bar or progress bar.
+
+don't forget to add whats new changes in the app on each PR or merge
+
+don't forget to add AI guided sticky notes on each tabs and sections on top of each section.
+
+we need to provide ID of each section and tabs so we can easily refer what we need in future enhancements with which section.
+
+we need to add new tab for future enwhaxnnets suggestion submission with AI power title generation, brief, requirements, impacts, outcome expected, success criteria and option to paste MD file for the engagement and keep each in GitHub repository so we always review the future ehancment request with every new changes and archive as soon as build, tested and archived the request repository including MD file from repository so it will not read next time. idea is collection enshcnents suggestion directly into the app and we can use that requested sunmmiited and reviewes then automatically add in into the development pipeline.
