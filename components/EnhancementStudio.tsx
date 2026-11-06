@@ -1,5 +1,7 @@
 "use client";
 
+import { MarkdownDownload } from "@/components/MarkdownDownload";
+
 import { useActionState, useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "./icons";
 import {
@@ -477,13 +479,11 @@ export function EnhancementStudio({
               {saveState.ephemeral ? (
                 <>
                   recorded in the enhancement pipeline and written to this instance&apos;s writable vault.{" "}
-                  <a href={`/api/enhancements/${saveState.ref}`} style={{ textDecoration: "underline", fontWeight: 600 }}>
-                    Download Markdown
-                  </a>{" "}
+                  {saveState.filename && saveState.content ? <MarkdownDownload filename={saveState.filename} content={saveState.content} label /> : null}{" "}
                   to commit it to <code className="mono">enhancements/</code>.
                 </>
               ) : (
-                <>markdown written to the repository vault.</>
+                <>markdown written to the local vault (not committed to GitHub).</>
               )}
             </span>
           </div>

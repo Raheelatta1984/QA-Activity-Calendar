@@ -342,7 +342,7 @@ export function readEnhancementMarkdown(item: {
   const onDisk = findExistingVaultFile(safeName);
   if (onDisk) {
     try {
-      return { filename: safeName, content: fs.readFileSync(onDisk, "utf8") };
+      return { filename: safeName, content: item.status ? updateFrontmatterStatus(fs.readFileSync(onDisk, "utf8"), item.status) : fs.readFileSync(onDisk, "utf8") };
     } catch {
       /* fall through to database synthesis */
     }

@@ -11,11 +11,13 @@ import {
 } from "@/lib/auth";
 import { getViewer, loadOrg, descendantsOf } from "@/lib/access";
 import { getSession } from "@/lib/auth";
+import { ensureBootstrapped } from "@/lib/bootstrap";
 import { recordAudit } from "@/lib/audit";
 
 export type LoginState = { error?: string };
 
 export async function loginAction(_prev: LoginState, formData: FormData): Promise<LoginState> {
+  ensureBootstrapped();
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
   if (!email || !password) return { error: "Enter your email and password." };

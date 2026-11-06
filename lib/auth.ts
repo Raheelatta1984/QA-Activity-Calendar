@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { get, run } from "./db";
 import { token } from "./ids";
+import { ensureBootstrapped } from "./bootstrap";
 import { encodeSessionToken, decodeSessionToken, signValue } from "./session-token";
 
 export { encodeSessionToken, decodeSessionToken, signValue };
@@ -75,6 +76,7 @@ export async function clearSessionCookie() {
 }
 
 export async function getSession() {
+  ensureBootstrapped();
   const store = await cookies();
   const raw = store.get(SESSION_COOKIE)?.value;
   if (!raw) return null;

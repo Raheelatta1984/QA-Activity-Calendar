@@ -474,3 +474,58 @@ test("readEnhancementMarkdown synthesises frontmatter Markdown when no disk copy
   assert.match(result.content, /ai_fields: "title"/);
   assert.match(result.content, /## Brief/);
 });
+
+test("GitHub publishing creates and updates handovers and reports failures", async () => {
+  const { publishBuildingEnhancement } = await import("../lib/github-enhancements");
+  const oldFetch = globalThis.fetch;
+  const oldRepo = process.env.GITHUB_REPO;
+  const oldToken = process.env.GITHUB_TOKEN;
+  const oldBranch = process.env.GITHUB_ENHANCEMENTS_BRANCH;
+  process.env.GITHUB_REPO = "owner/repo";
+  process.env.GITHUB_TOKEN = "test-token";
+  process.env.GITHUB_ENHANCEMENTS_BRANCH = "main";
+  try {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    globalThis.fetch = async (input, init) => {
+      calls.push({ url: String(input), init });
+      return calls.length === 1 ? new Response(null, { status: 404 }) : new Response("{}", { status: 201 });
+    };
+    const result = await publishBuildingEnhancement("ENH-0004-example-enh-123.md", "hello");
+    assert.equal(result, "lib/future-enhancements/ENH-0004-example-enh-123.md");
+    assert.equal(JSON.parse(String(calls[1].init?.body)).content, Buffer.from("hello").toString("base64"));
+    assert.equal(JSON.parse(String(calls[1].init?.body)).branch, "main");
+    globalThis.fetch = async (_input, init) => init?.method === "PUT"
+      ? new Response(null, { status: 409 })
+      : Response.json({ type: "file", sha: "abc" });
+    await assert.rejects(() => publishBuildingEnhancement("ENH-0004-example-enh-123.md", "hello"), /HTTP 409/);
+    await assert.rejects(() => publishBuildingEnhancement("../bad.md", "hello"), /Invalid/);
+    delete process.env.GITHUB_TOKEN;
+    await assert.rejects(() => publishBuildingEnhancement("ENH-0004-example.md", "hello"), /not configured/);
+  } finally {
+    globalThis.fetch = oldFetch;
+    for (const [key, value] of Object.entries({ GITHUB_REPO: oldRepo, GITHUB_TOKEN: oldToken, GITHUB_ENHANCEMENTS_BRANCH: oldBranch })) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  }
+});
+
+test("archive script only moves explicitly named Building handovers", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qa-archive-test-"));
+  const root = path.join(dir, "lib/future-enhancements");
+  fs.mkdirSync(root, { recursive: true });
+  const script = path.join(process.cwd(), "scripts/archive-enhancements.mjs");
+  try {
+    const name = "ENH-0004-example-enh-123.md";
+    const other = "ENH-0005-other-enh-456.md";
+    const doc = '---\nref: "ENH-0004"\nstatus: "Building"\n---\n\n# Content\n';
+    fs.writeFileSync(path.join(root, name), doc);
+    fs.writeFileSync(path.join(root, other), doc);
+    execFileSync(process.execPath, [script], { cwd: dir, env: { ...process.env, PR_BODY: `Enhancement-Archive: ${name}` } });
+    assert.equal(fs.existsSync(path.join(root, name)), false);
+    assert.equal(fs.existsSync(path.join(root, other)), true);
+    assert.match(fs.readFileSync(path.join(root, "archive", name), "utf8"), /status: "Archived"/);
+    execFileSync(process.execPath, [script], { cwd: dir, env: { ...process.env, PR_BODY: "Enhancement-Archive: ../../bad.md" } });
+    assert.equal(fs.existsSync(path.join(root, other)), true);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
