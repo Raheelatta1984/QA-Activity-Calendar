@@ -28,7 +28,7 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
   if (!verifyPassword(password, person.password_hash)) return { error: "That password doesn't match our records." };
 
   const session = createSession(person.id);
-  await setSessionCookie(session.id, session.expires);
+  await setSessionCookie({ sessionId: session.id, personId: person.id, expires: session.expires });
   recordAudit({ actorId: person.id, actorName: person.name, action: "auth.login", entity: "person", entityId: person.id });
   redirect("/");
 }

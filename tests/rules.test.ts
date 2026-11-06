@@ -18,6 +18,8 @@ import { effectiveRange } from "../lib/pipeline";
 import { deriveStatus } from "../lib/bugs";
 import { descendantsOf, scopeFor, type Org } from "../lib/access";
 import { draftEnhancement } from "../lib/ai";
+import { decodeSessionToken, encodeSessionToken } from "../lib/session-token";
+import { MIGRATIONS } from "../db/migrations.generated";
 
 test("FY27 runs July 2026 to June 2027", () => {
   const nov = fiscalYearOf("2026-11-06");
@@ -204,4 +206,32 @@ test("eachDay never loops past a reversed range", () => {
   const days = eachDay("2026-11-06", "2026-11-08");
   assert.equal(days.length, 3);
   assert.equal(addDays(days[2], 1), "2026-11-09");
+});
+
+test("session tokens are signed, self-contained and tamper-evident", () => {
+  const token = encodeSessionToken({
+    s: "sess_abc",
+    p: "p_amara",
+    e: "2099-01-01T00:00:00.000Z",
+    i: null,
+  });
+  const decoded = decodeSessionToken(token);
+  assert.equal(decoded?.p, "p_amara");
+  assert.equal(decoded?.s, "sess_abc");
+
+  // Flipping a byte in the payload must invalidate the signature.
+  const [body, signature] = token.split(".");
+  const tamperedBody = `${body.slice(0, -2)}${body.endsWith("A") ? "B" : "A"}A`;
+  assert.equal(decodeSessionToken(`${tamperedBody}.${signature}`), null);
+
+  // Legacy/opaque cookies and malformed values fall back to "no session".
+  assert.equal(decodeSessionToken("abc.def"), null);
+  assert.equal(decodeSessionToken("no-dot"), null);
+});
+
+test("migrations are embedded for serverless bundles", () => {
+  assert.ok(MIGRATIONS.length >= 1);
+  assert.equal(MIGRATIONS[0].name, "001_init.sql");
+  assert.match(MIGRATIONS[0].sql, /CREATE TABLE IF NOT EXISTS activities/i);
+  assert.match(MIGRATIONS[0].sql, /CREATE TABLE IF NOT EXISTS tabs/i);
 });

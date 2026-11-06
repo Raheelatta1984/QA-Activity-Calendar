@@ -84,3 +84,9 @@ Hours conversion uses a configurable day length: default **7.6h** (source capaci
 ## 20. Enhancements and GitHub
 **Decision:** enhancements are stored in the database *and* written as Markdown into `enhancements/` in this repository. Archiving moves the file to `enhancements/archive/` so it is not reviewed again. A GitHub token is optional; the default flow is a human commit.
 **Open:** should the app push directly via the GitHub API in CI? Requires a scoped token and PR policy.
+
+## 21. Serverless storage (Vercel)
+**Decision:** when a serverless runtime is detected (Vercel/Lambda/Netlify) or the configured database path is not writable, the app stores SQLite in `/tmp`, embeds the migration SQL into the bundle at build time, and shows a banner that the instance is ephemeral. Session cookies are self-contained signed tokens so a login survives cold starts and instance hops.
+**Why:** the first Vercel deployment failed with a generic "server-side exception" because the bundle filesystem is read-only and the runtime could not find or create the database. The app must start cleanly with no configuration.
+**Consequence:** on Vercel the demo is fully functional but not a system of record — data is per instance and resets. Postgres is the documented path to durable storage.
+**Open:** which managed Postgres (Neon/Vercel Postgres/Supabase) and who owns backups/retention. Until that is chosen, do not put production data in the serverless demo.
