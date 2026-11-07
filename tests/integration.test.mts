@@ -333,6 +333,9 @@ test("an archived handover document moves the matching request to Archived", asy
   const { syncEnhancementDocs } = await import("../lib/enhancement-docs");
   const before = get<any>(`SELECT * FROM enhancements WHERE id = 'enh_seed_1'`);
   assert.ok(before, "seeded enhancement exists");
+  // The seeded proposals themselves are archived, so stage the pre-archive state
+  // this test is about instead of relying on a seed value that must never drift.
+  run(`UPDATE enhancements SET status = 'Building', archived_at = NULL WHERE id = 'enh_seed_1'`);
   const name = "ENH-0001-add-department-level-capacity-forecasting-enh-seed-1.md";
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "qa-doc-sync-"));
   const archivedDir = path.join(root, "lib/future-enhancements/archived");
@@ -345,7 +348,7 @@ test("an archived handover document moves the matching request to Archived", asy
     const result = await syncEnhancementDocs({ root, apply: true });
     const change = result.changes.find((entry) => entry.id === "enh_seed_1");
     assert.ok(change, "the archived document is reported");
-    assert.equal(change.from, "Reviewing");
+    assert.equal(change.from, "Building");
     assert.equal(change.to, "Archived");
     const after = get<any>(`SELECT status, archived_at, github_path FROM enhancements WHERE id = 'enh_seed_1'`);
     assert.equal(after.status, "Archived");
@@ -369,7 +372,9 @@ test("an archived handover document moves the matching request to Archived", asy
 test("a Built document is reported without archiving the request", async () => {
   const { syncEnhancementDocs } = await import("../lib/enhancement-docs");
   const before = get<any>(`SELECT * FROM enhancements WHERE id = 'enh_seed_2'`);
-  const name = "ENH-0002-two-way-teams-notification-go-no-go-decisions-enh-seed-2.md";
+  // Start from Building so the Built promotion has a stage to move from.
+  run(`UPDATE enhancements SET status = 'Building', archived_at = NULL WHERE id = 'enh_seed_2'`);
+  const name = "ENH-0002-two-way-teams-notification-for-go-no-go-decisions-enh-seed-2.md";
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "qa-doc-built-"));
   const activeDir = path.join(root, "lib/future-enhancements");
   fs.mkdirSync(activeDir, { recursive: true });
