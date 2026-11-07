@@ -1,31 +1,69 @@
-name: Archive completed enhancement handovers
+name: Complete enhancement handovers
+
 on:
   pull_request:
     types: [closed]
     branches: [main]
+
 permissions:
   contents: write
+  checks: read
+  issues: write
+  pull-requests: write
+
 concurrency:
   group: enhancement-archive-main
   cancel-in-progress: false
+
 jobs:
-  archive:
+  complete:
     if: github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
-      - name: Archive handovers explicitly named in the merged PR
+          fetch-depth: 0
+          token: ${{ secrets.AUTOMATION_TOKEN || github.token }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Resolve the authoritative handovers for this merged PR
+        id: resolve
         env:
-          PR_BODY: ${{ github.event.pull_request.body }}
+          GITHUB_TOKEN: ${{ secrets.AUTOMATION_TOKEN || github.token }}
+          ARCHIVE_NAMES_FILE: .tmp/enhancement-archive-names.txt
+          ISSUE_NUMBERS_FILE: .tmp/enhancement-issue-numbers.txt
+        run: node scripts/resolve-pr-handovers.mjs
+      - name: Verify the implementation build
+        if: steps.resolve.outputs.relevant == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.AUTOMATION_TOKEN || github.token }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REQUIRED_CHECK_NAME: ${{ vars.REQUIRED_CHECK_NAME }}
+        run: node scripts/verify-pr-build.mjs
+      - name: Archive completed handovers (direct push or CI-gated archive PR)
+        if: steps.resolve.outputs.relevant == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.AUTOMATION_TOKEN || github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          ARCHIVE_NAMES_FILE: .tmp/enhancement-archive-names.txt
+          ARCHIVED_NAMES_FILE: .tmp/enhancement-archived-names.txt
         run: |
           node scripts/archive-enhancements.mjs
-          if ! git diff --quiet; then
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add lib/future-enhancements
-            git commit -m "docs: archive handovers completed by PR #${PR_NUMBER}"
-            git push origin HEAD:main
-          fi
+          node scripts/push-archive-or-pr.mjs
+      - name: Close completed development requests
+        if: steps.resolve.outputs.relevant == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.AUTOMATION_TOKEN || github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          ARCHIVED_NAMES_FILE: .tmp/enhancement-archived-names.txt
+          ISSUE_NUMBERS_FILE: .tmp/enhancement-issue-numbers.txt
+        run: node scripts/finalize-enhancement-issues.mjs
+      - name: Delete merged branches within the configured cleanup scope
+        if: success()
+        env:
+          GITHUB_TOKEN: ${{ secrets.AUTOMATION_TOKEN || github.token }}
+          BRANCH_CLEANUP_PREFIXES: ${{ vars.BRANCH_CLEANUP_PREFIXES }}
+          CLEANUP_ALL_MERGED_BRANCHES: ${{ vars.CLEANUP_ALL_MERGED_BRANCHES }}
+        run: node scripts/delete-merged-branch.mjs

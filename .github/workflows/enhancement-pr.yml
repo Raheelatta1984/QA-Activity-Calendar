@@ -1,0 +1,30 @@
+name: Enhancement PR coordination
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, edited]
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: enhancement-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  coordinate:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Link the PR to its authoritative handover request
+        id: link
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/link-enhancement-pr.mjs
