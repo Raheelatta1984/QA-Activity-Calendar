@@ -1,0 +1,41 @@
+{
+  "name": "enhancements-hub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Centralised, multi-tenant Future Enhancements module — REST + MCP, attachable to any project.",
+  "type": "module",
+  "main": "./server/app.ts",
+  "exports": {
+    ".": "./server/app.ts",
+    "./core": "./server/core/index.ts",
+    "./adapters/next": "./server/adapters/next.ts",
+    "./adapters/express": "./server/adapters/express.ts",
+    "./adapters/mcp": "./server/adapters/mcp.ts"
+  },
+  "scripts": {
+    "dev": "tsx server/index.ts",
+    "start": "tsx server/index.ts",
+    "test": "tsx --test tests/lifecycle.test.ts tests/vault.test.ts tests/api.test.ts tests/mcp.test.ts",
+    "typecheck": "tsc --noEmit",
+    "sync": "tsx scripts/sync-docs.ts",
+    "archive": "node scripts/archive-handovers.mjs"
+  },
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "tsx": "4.19.2",
+    "typescript": "5.7.2"
+  },
+  "keywords": [
+    "enhancements",
+    "feature-requests",
+    "multi-tenant",
+    "github-automation",
+    "mcp",
+    "rest",
+    "sqlite"
+  ]
+}

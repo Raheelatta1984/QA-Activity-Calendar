@@ -1,0 +1,109 @@
+# Enhancement handover intake — install in the TARGET repository.
+#
+# When the Enhancements Hub publishes a handover to future-enhancements/*.md
+# (configurable via vars.HANDOVER_DIR), this workflow opens one idempotent
+# `arena-handover` development request containing the document and a
+# ready-to-paste Arena Agent Mode prompt. Free-plan compatible: no paid agent,
+# no GitHub Models, no external LLM key.
+
+name: Enhancement handover intake
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "future-enhancements/*.md"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "new = latest commit only, all_active = every active handover"
+        default: new
+        type: choice
+        options: [new, all_active]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: enhancement-intake
+  cancel-in-progress: false
+
+jobs:
+  intake:
+    runs-on: ubuntu-latest
+    env:
+      HANDOVER_DIR: ${{ vars.HANDOVER_DIR || 'future-enhancements' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ github.event_name == 'push' && 2 || 1 }}
+
+      - name: Detect active handovers
+        id: detect
+        env:
+          MODE: ${{ inputs.mode || 'new' }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: node .github/scripts/enhancement-intake.mjs
+
+      - name: Create development requests
+        if: steps.detect.outputs.names != ''
+        uses: actions/github-script@v7
+        env:
+          NAMES: ${{ steps.detect.outputs.names }}
+          ARENA_URL: https://arena.ai/agent
+        with:
+          script: |
+            const fs = require("fs");
+            const names = process.env.NAMES.split("\n").map(s => s.trim()).filter(Boolean);
+            const dir = process.env.HANDOVER_DIR;
+            for (const name of names) {
+              const content = fs.readFileSync(`${dir}/${name}`, "utf8");
+              const ref = content.match(/^ref:\s*"([^"]+)"/m)?.[1] ?? name;
+              const title = content.match(/^title:\s*"([^"]+)"/m)?.[1] ?? ref;
+              const sha = context.sha.slice(0, 12);
+              const marker = `Enhancement-Archive: ${name}`;
+              const body = [
+                `## Enhancement handover — ${ref}`,
+                "",
+                `\`${dir}/${name}\` @ ${sha}`,
+                "",
+                "<details><summary>Handover document</summary>",
+                "",
+                "```markdown",
+                content.trim(),
+                "```",
+                "",
+                "</details>",
+                "",
+                "### Arena Agent Mode quick start",
+                `1. Open <${process.env.ARENA_URL}> and switch to Agent Mode (enable the GitHub connector).`,
+                "2. Paste this prompt into a new session:",
+                "",
+                "```text",
+                `Implement the enhancement handover at ${dir}/${name} (commit ${sha}).`,
+                `Follow the document's requirements, expected outcome and success criteria.`,
+                `Validate with the repository's own checks (typecheck/tests/build), open ONE PR`,
+                `referencing this issue with "Closes #<issue number>", and include this exact`,
+                `line in the PR body: ${marker}`,
+                "```",
+                "",
+                "One Arena session supports one PR. Do not re-raise an issue for a handover that is already delivered.",
+              ].join("\n");
+              const existing = await github.rest.search.issuesAndPullRequests({
+                q: `repo:${context.repo.owner}/${context.repo.repo} is:issue is:open label:arena-handover in:body "${marker}"`,
+                per_page: 1,
+              });
+              if (existing.data.items.length) {
+                core.info(`Issue already exists for ${name}: #${existing.data.items[0].number}`);
+                continue;
+              }
+              const issue = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `[enh] ${ref} — ${title}`,
+                body,
+                labels: ["arena-handover", "enhancement"],
+              });
+              core.info(`Created #${issue.data.number} for ${name}`);
+            }
