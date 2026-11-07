@@ -1,7 +1,7 @@
 ---
 ref: "ENH-0002"
 title: "Two-way Teams notification for go/no-go decisions"
-status: "Building"
+status: "Archived"
 submitted_by: "Grace Mbeki"
 submitted_on: "2026-11-05"
 app_sections: "sec.releases.governance"
@@ -29,6 +29,9 @@ A go/no-go decision posts to the release channel within a minute of being record
 - Delivery failures visible in the audit log.
 - No secrets rendered to the browser.
 
+## Build outcome
+Archived by the repository owner on 2026-11-08 after review: not implemented, no implementation PR merged. Re-raise as a new proposal if needed.
+
 ---
 
-_Generated from the in-app enhancement vault._
+_Archived from the in-app enhancement vault._

@@ -55,10 +55,12 @@ merges. PR #6 is open; these workflows become active on `main` after it merges.
 | `merge-after-ci.yml` | successful `CI` `workflow_run` from a PR | Verify the exact PR head SHA, labels, same-repository head and required check, then squash-merge eligible PRs |
 | `archive-enhancements.yml` | PR merged into `main`, the merge workflow finishing, or a manual PR number | Resolve authoritative handovers, verify the successful head-SHA build check, mark them **Built**, move the files to `archived/`, push directly or open an archive PR, close issues, reconcile statuses, clean up branches |
 
-`workflow_dispatch` on the intake workflow with mode `all_active` backfills the
-two existing Building handovers without waiting for another file to be added.
-Mode `new` checks the latest main commit only. Run `all_active` after PR #6
-merges.
+`workflow_dispatch` on the intake workflow with mode `all_active` backfills
+active Building handovers across the repository without waiting for another file
+to be added. Mode `new` checks the latest main commit only. There are currently
+**no** active handovers — every `ENH-*.md` file lives in
+`lib/future-enhancements/archived/` — so `all_active` is a no-op until a new
+proposal moves to Building.
 
 ## Starting the Arena session from an issue
 
@@ -263,8 +265,9 @@ belongs to the in-app proposal vault and is unchanged.
 
 ## Operational checks
 
-- After merging PR #6, trigger intake manually with `all_active` for the two
-  existing Building handovers.
+- After merging PR #6, trigger intake manually with `all_active` for any existing
+  Building handovers. That backfill has since been completed and the handovers are
+  archived, so there is currently nothing left to backfill.
 - Open each `arena-handover` issue, start a new Arena Agent Mode session at
   <https://arena.ai/agent> and paste the issue prompt.
 - Check the PR body for `Closes #...` and `Enhancement-Archive: ...`.

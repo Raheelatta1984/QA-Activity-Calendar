@@ -1,7 +1,7 @@
 ---
 ref: "ENH-0001"
 title: "Add department-level capacity forecasting"
-status: "Building"
+status: "Archived"
 submitted_by: "Lachlan Reid"
 submitted_on: "2026-11-05"
 app_sections: "sec.capacity.pivot, sec.capacity.demand"
@@ -31,6 +31,9 @@ Three-month capacity forecast with contractor shortfall highlighted weekly, prod
 - Documented under What's New with affected section IDs.
 - Automated tests cover the happy path and the failure path.
 
+## Build outcome
+Archived by the repository owner on 2026-11-08 after review: this request was never implemented and no implementation PR was merged. It is recorded as Archived so it is not re-raised blindly or picked up by the `all_active` intake backfill. Re-open as a new proposal if the capability is needed.
+
 ---
 
-_Generated from the in-app enhancement vault. Review with every change set and archive once built and tested._
+_Archived handover record. Never reviewed twice._

@@ -1028,21 +1028,21 @@ export function seedDemoData() {
         outcome,
         success,
         `# ${title}\n\n## Brief\n${brief}\n\n## Requirements\n${requirements}\n\n## Impacts\n${impacts}\n\n## Expected outcome\n${outcome}\n\n## Success criteria\n${success}\n`,
-        i === 0 ? "Reviewing" : i === 1 ? "Submitted" : "Archived",
+        "Archived",
         i === 0 ? "p_lachlan" : i === 1 ? "p_grace" : "p_amara",
         i === 0 ? "dept_qa" : "dept_rel",
         i === 2 ? 4 : 1
       );
+      // Every seeded proposal has been reviewed and archived, so the stored path
+      // must be the archived one: the active vault holds no seeded documents.
       const vaultPath =
         i === 0
-          ? "enhancements/ENH-0001-department-level-capacity-forecasting.md"
+          ? "enhancements/archive/ENH-0001-department-level-capacity-forecasting.md"
           : i === 1
-            ? "enhancements/ENH-0002-teams-notification-go-no-go.md"
+            ? "enhancements/archive/ENH-0002-teams-notification-go-no-go.md"
             : "enhancements/archive/ENH-0003-sticky-note-templates.md";
       run(`UPDATE enhancements SET github_path = ? WHERE id = ?`, vaultPath, `enh_seed_${i + 1}`);
-      if (i === 2) {
-        run(`UPDATE enhancements SET archived_at = datetime('now') WHERE id = ?`, `enh_seed_${i + 1}`);
-      }
+      run(`UPDATE enhancements SET archived_at = datetime('now') WHERE id = ?`, `enh_seed_${i + 1}`);
     });
 
     // ------------------------------------------------------------------ changelog
