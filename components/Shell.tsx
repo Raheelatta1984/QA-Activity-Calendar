@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Icon } from "./icons";
+import { WelcomeToast } from "./WelcomeToast";
 import { logoutAction, switchDepartmentAction, switchPersonaAction } from "@/app/actions/auth";
 
 export type ShellTab = {
@@ -32,6 +33,7 @@ export function Shell({
   departments,
   activeDepartmentId,
   ephemeral,
+  showLoginWelcome = false,
   children,
 }: {
   tabs: ShellTab[];
@@ -43,6 +45,7 @@ export function Shell({
   departments: { id: string; name: string; enabled: number }[];
   activeDepartmentId: string | null;
   ephemeral?: boolean;
+  showLoginWelcome?: boolean;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -86,6 +89,7 @@ export function Shell({
 
   return (
     <div className="shell">
+      {showLoginWelcome ? <WelcomeToast name={user.name} /> : null}
       <aside className={`sidebar ${open ? "open" : ""}`} aria-label="Primary navigation">
         <div className="brand">
           <div className="brand-mark">HF</div>

@@ -6,6 +6,7 @@ import {
   createSession,
   destroySession,
   setImpersonation,
+  setLoginWelcomeCookie,
   setSessionCookie,
   verifyPassword,
 } from "@/lib/auth";
@@ -32,6 +33,7 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
   const session = createSession(person.id);
   await setSessionCookie({ sessionId: session.id, personId: person.id, expires: session.expires });
   recordAudit({ actorId: person.id, actorName: person.name, action: "auth.login", entity: "person", entityId: person.id });
+  await setLoginWelcomeCookie({ sessionId: session.id, personId: person.id, expires: session.expires });
   redirect("/");
 }
 
