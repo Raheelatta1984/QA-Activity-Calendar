@@ -13,4 +13,10 @@ git commit -m "docs(enhancements): capture latest proposals"
 git push
 ```
 
-Archiving in the app moves the file into `archive/` automatically, so a shipped request is not re-reviewed. The database remains the source of truth for status; the Markdown files are the portable, reviewable record.
+Archiving in the app moves the file into `archive/` automatically, so a shipped request is not re-reviewed.
+
+This folder is the **in-app proposal vault**. The approved handovers that drive GitHub
+automation live one level down in `lib/future-enhancements/`, follow the same
+status lifecycle (`Building` → `Built` → `Archived`) and are reconciled with the
+database on every deployment that bundles them — see
+[`docs/ENHANCEMENT-AUTOMATION.md`](../docs/ENHANCEMENT-AUTOMATION.md#handover-lifecycle-and-status-truth).

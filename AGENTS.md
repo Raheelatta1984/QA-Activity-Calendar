@@ -21,10 +21,13 @@ review.
 
 Do not merge the PR, delete unrelated branches, or archive a handover manually.
 The CI-gated merge workflow performs the merge after `Build and test` succeeds
-on the exact PR head SHA; the completion workflow then archives the handover. It
-pushes the archive commit directly when allowed, otherwise opens a generated
-CI-gated archive PR. By default it deletes only the merged PR head branch when
-that branch is in the configured automation-prefix allowlist, which includes
+on the exact PR head SHA; the completion workflow then marks the handover
+`Built`, moves it into `lib/future-enhancements/archived/` with status
+`Archived`, closes the request and reconciles the in-app status. Do not edit a
+handover status yourself. The completion workflow pushes the archive commit
+directly when allowed, otherwise it opens a generated CI-gated archive PR. By
+default it deletes only the merged PR head branch when that branch is in the
+configured automation-prefix allowlist, which includes
 `arena/`; other branches, protected branches, active Arena session branches
 (`arena/<session-id>`), branches whose local HEAD is not the merged PR head and
 branches with newer commits are preserved. Never force a session branch to be

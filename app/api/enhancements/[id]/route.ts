@@ -2,11 +2,12 @@ import { get } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { ensureBootstrapped } from "@/lib/bootstrap";
 import { readEnhancementMarkdown } from "@/lib/enhancements";
+import { statusAfterArchive } from "@/lib/enhancement-status";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
-  ensureBootstrapped();
+  await ensureBootstrapped();
   const session = await getSession();
   if (!session) return new Response("Authentication required", { status: 401, headers: { "Cache-Control": "no-store" } });
   const { id } = await context.params;
@@ -22,6 +23,9 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 
   const { filename, content } = readEnhancementMarkdown(item);
   const safeDispositionName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+  // The response below carries the database status into the frontmatter, so an
+  // archived record can never hand back an active "Building" document.
+  const status = statusAfterArchive(item.status);
 
   return new Response(content, {
     headers: {
@@ -29,6 +33,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       "Content-Type": "text/markdown; charset=utf-8",
       "Content-Disposition": `attachment; filename="${safeDispositionName}"`,
       "X-Requested-By": session.person.email,
+      "X-Enhancement-Status": status,
     },
   });
 }

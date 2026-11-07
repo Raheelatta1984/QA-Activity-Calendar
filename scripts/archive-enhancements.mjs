@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   ARCHIVED_NAMES_FILE,
   isBuildingHandover,
+  isBuiltOrBuildingHandover,
   isSafeHandoverName,
   parseArchiveMarkers,
   readLines,
@@ -51,10 +52,18 @@ for (const name of names) {
   }
 
   const content = fs.readFileSync(source, "utf8");
-  if (!isBuildingHandover(content)) throw new Error(`${name} is not a Building handover.`);
+  // A resolved handover is either still Building (the build step did not run) or
+  // already Built. Anything else is not an approved, delivered request and must
+  // never be swept into archived/.
+  if (!isBuildingHandover(content) && !isBuiltOrBuildingHandover(content)) {
+    throw new Error(`${name} is not an active Building or Built handover.`);
+  }
 
   fs.mkdirSync(destinationDir, { recursive: true });
-  fs.writeFileSync(destination, content.replace(/^status: "Building"$/m, 'status: "Archived"'));
+  fs.writeFileSync(
+    destination,
+    content.replace(/^status: "Building"$/m, 'status: "Archived"').replace(/^status: "Built"$/m, 'status: "Archived"'),
+  );
   fs.unlinkSync(source);
   archived.push(name);
   console.log(`Archived ${name} into lib/future-enhancements/archived/`);

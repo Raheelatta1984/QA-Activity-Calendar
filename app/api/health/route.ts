@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { all, dbInfo, get } from "@/lib/db";
-import { bootstrapDone, bootstrapLastError, ensureBootstrapped } from "@/lib/bootstrap";
+import { bootstrapDone, bootstrapLastError, bootstrapLastSync, ensureBootstrapped } from "@/lib/bootstrap";
 import { vaultInfo } from "@/lib/enhancements";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET() {
   try {
-    ensureBootstrapped();
+    await ensureBootstrapped();
   } catch {
     /* reported below via bootstrapError */
   }
@@ -21,6 +21,7 @@ export async function GET() {
     vault: vaultInfo(),
     bootstrapDone: bootstrapDone(),
     bootstrapError: bootstrapLastError(),
+    enhancementDocSync: bootstrapLastSync(),
   };
   try {
     const tables =

@@ -19,8 +19,20 @@ import {
 export async function runResolvePullRequest(env = process.env, { fetchImpl = globalThis.fetch } = {}) {
   const event = readGithubEvent(env);
   const repository = repositoryFromEnv(env);
-  const pr = event.pull_request;
   const archiveFile = env.ARCHIVE_NAMES_FILE || ARCHIVE_NAMES_FILE;
+
+  // A `workflow_run` or `workflow_dispatch` event carries no pull request, so the
+  // merged PR is fetched from the number the completion workflow resolved.
+  let pr = event.pull_request;
+  const requestedPr = String(env.PR_NUMBER || "").replace(/[^0-9]/g, "");
+  if (!pr && requestedPr) {
+    const { response, data } = await githubRequest(
+      env,
+      `/repos/${repository.fullName}/pulls/${requestedPr}`,
+      { fetchImpl, allow: [404] },
+    );
+    if (response.status !== 404 && data?.number) pr = data;
+  }
   const issuesFile = env.ISSUE_NUMBERS_FILE || ISSUE_NUMBERS_FILE;
   const finish = (names, issues, notes = []) => {
     const safeNames = unique(names);
@@ -48,7 +60,11 @@ export async function runResolvePullRequest(env = process.env, { fetchImpl = glo
 
   const explicit = parseArchiveMarkers(pr.body);
   const matches = [];
-  for (const number of parseIssueReferences(pr.body, repository.fullName)) {
+  // The completion workflow can run after the CI-gated merge workflow, when the
+  // event is a `workflow_run` and only the PR number is known. Those issue
+  // references are resolved from the pull request itself.
+  const references = parseIssueReferences(pr.body, repository.fullName);
+  for (const number of references) {
     const { response, data: issue } = await githubRequest(
       env,
       `/repos/${repository.fullName}/issues/${number}`,

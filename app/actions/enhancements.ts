@@ -7,6 +7,7 @@ import { uid } from "@/lib/ids";
 import { recordAudit } from "@/lib/audit";
 import { draftEnhancement, suggestEnhancementFields, type EnhancementDraft, type EnhancementSuggestions } from "@/lib/ai";
 import { publishBuildingEnhancement } from "@/lib/github-enhancements";
+import { syncEnhancementDocs } from "@/lib/enhancement-docs";
 import { isoToday } from "@/lib/dates";
 import {
   enhancementFileName,
@@ -231,14 +232,22 @@ export async function setEnhancementStatusAction(_prev: { error?: string; ok?: b
   );
   if (!existing) return { error: "Enhancement not found on this instance. Refresh and try again." };
 
-  if (status === "Building") {
+  if (status === "Building" || status === "Built") {
+    // Building publishes the approved handover; Built left the file in place but
+    // re-publishing keeps the frontmatter status truthful if the file is missing.
     const { content } = readEnhancementMarkdown({ ...existing, status });
     const base = enhancementFileName(existing.ref, existing.title).replace(/\.md$/, "");
     const uniqueId = String(existing.id).replace(/[^a-zA-Z0-9-]/g, "-").toLowerCase();
     try {
       await publishBuildingEnhancement(`${base}-${uniqueId}.md`, content);
     } catch (error) {
-      return { error: error instanceof Error ? error.message : "GitHub publishing failed." };
+      const detail = error instanceof Error ? error.message : "GitHub publishing failed.";
+      return {
+        error:
+          status === "Built"
+            ? `${detail} A Built request needs its handover in lib/future-enhancements/ so the completion automation can archive it.`
+            : detail,
+      };
     }
   }
 
@@ -355,4 +364,31 @@ export async function regenerateMarkdownAction(formData: FormData): Promise<void
   });
   run(`UPDATE enhancements SET github_path = ? WHERE id = ?`, written.relativePath, id);
   revalidatePath("/enhancements");
+}
+
+/**
+ * Reconcile in-app statuses with the handover documents committed in this build.
+ *
+ * The completion workflow moves a finished handover into
+ * `lib/future-enhancements/archived/`; this action makes the matching request
+ * follow it to **Archived** (and a `Built` document promote a Building request).
+ * Editors can run it from the vault when they can see the files; the same
+ * reconciliation also runs automatically on bootstrap after a deployment.
+ */
+export async function syncEnhancementDocsAction(): Promise<void> {
+  const viewer = await getViewer();
+  if (!canEdit(viewer)) return;
+  const result = await syncEnhancementDocs({ root: process.cwd(), apply: true });
+  if (result.changes.length) {
+    recordAudit({
+      actorId: viewer.person.id,
+      actorName: viewer.person.name,
+      action: "enhancement.sync",
+      entity: "enhancement",
+      after: result.changes.map((change) => ({ ref: change.ref, from: change.from, to: change.to, source: change.source })),
+      meta: { scanned: result.scanned },
+    });
+  }
+  revalidatePath("/enhancements");
+  revalidatePath("/", "layout");
 }

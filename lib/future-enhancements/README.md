@@ -5,6 +5,24 @@ proposal moves to **Building**. Review active `ENH-*.md` files alongside every
 change request. Files in `archived/` (and the legacy `archive/` directory) are
 completed records and are never reconsidered as active requests.
 
+## Why these files stay in Git (and are not gitignored)
+
+The completion automation is driven by what is committed to `main`:
+
+- the intake workflow watches `lib/future-enhancements/*.md` and creates one
+  `arena-handover` development request per Building handover;
+- the completion workflow reads the Building/Built document after a merge, moves
+  it into `archived/` and rewrites its status to `Archived`;
+- every deployment reconciles the in-app status from whichever documents it
+  bundles, so `archived/` is what makes a request `Archived`.
+
+Gitignoring the active handovers would therefore hide the approval from the
+automation (no development request would ever be raised) and gitignoring the
+archived copies would delete the audit trail the status sync reads. Only
+generated artefacts are ignored: the reconciliation report is written to
+`.tmp/enhancement-docs-sync.md`, which is gitignored, and the local SQLite
+database and the in-app vault fallback live in `data/` and `/tmp`.
+
 ## Lifecycle
 
 1. A new `ENH-*.md` file pushed to `main` triggers `Enhancement handover intake`.
@@ -22,11 +40,17 @@ completed records and are never reconsidered as active requests.
    succeeds on the exact PR head SHA, `Merge passing enhancement PR` squash-merges
    eligible PRs; set `AUTO_MERGE_ENABLED=false` to keep merges manual.
 4. After the PR merges into `main`, `Complete enhancement handovers` verifies
-   the successful build check, moves exactly the resolved Building handover(s)
-   into `lib/future-enhancements/archived/`, changes their status to
+   the successful build check, marks the resolved handover(s) **Built**, moves
+   them into `lib/future-enhancements/archived/`, changes their status to
    `Archived`, commits directly or through a generated CI-gated archive PR,
-   closes the linked request(s), and deletes branches within the configured
-   cleanup scope.
+   closes the linked request(s), reconciles the in-app status and deletes
+   branches within the configured cleanup scope. It is triggered by the merge
+   *and* by the CI-gated merge workflow finishing, because a token merge emits
+   no `pull_request` closed event.
+
+To complete a pull request that merged before the current triggers existed, run
+`Complete enhancement handovers` from the Actions tab with its `pr_number`
+input; the same verification and archiving rules apply.
 
 The exact marker line in a PR body is an audit aid. The completion workflow uses
 the linked, labelled development request as the authoritative source; an
@@ -36,8 +60,8 @@ unbacked marker in an unrelated PR does not archive a handover.
 
 - Only same-repository PRs merged into `main` are processed; fork PRs are
   skipped by the CI-gated merge workflow.
-- A handover is archived only when it still has `status: "Building"` and the
-  merged PR's required build check succeeded.
+- A handover is archived only when it still has `status: "Building"` or
+  `status: "Built"` and the merged PR's required build check succeeded.
 - Branch cleanup is an allowlist (`copilot/`, `enh/`, `enhancement/`,
   `automation/`, `arena/` by default), not a sweep of every non-`main` branch.
   Protected, unrelated, active or newer branches are preserved. The default

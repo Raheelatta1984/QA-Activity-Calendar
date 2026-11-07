@@ -89,6 +89,7 @@ them for a new surface; add a new row instead.
 | --- | --- | --- | --- |
 | `sec.enhancements.intake` | Submit a proposal | yes | AI-assisted title, brief, requirements, impacts and success criteria. |
 | `sec.enhancements.vault` | Enhancement vault | yes | Submitted, reviewed and archived requests with markdown export. |
+| `sec.enhancements.handovers` | Handover documents | yes | Building → Built → Archived Markdown in `lib/future-enhancements/` and the status each document carries. |
 
 ### Data Quality — `tab.validation`
 

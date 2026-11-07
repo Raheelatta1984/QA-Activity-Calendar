@@ -91,4 +91,5 @@ Hidden sheets, named ranges, pivots and conditional formatting cannot be enumera
 | FTE calendar by activity per day with totals | `tab.fte`, `lib/fte.ts`, `components/FteCalendarBoard.tsx` |
 | Live AI drafting of enhancement fields | `lib/ai.ts` (`suggestEnhancementFields`), `app/actions/enhancements.ts`, `components/EnhancementStudio.tsx` |
 | Enhancement intake → GitHub | `tab.enhancements`, markdown vault, archive flow |
+| Handover lifecycle Building → Built → Archived | `sec.enhancements.handovers`, `lib/enhancement-status.ts`, `lib/enhancement-docs.ts`, completion workflow |
 | What's New per PR/merge | `tab.changelog` + admin entry form |

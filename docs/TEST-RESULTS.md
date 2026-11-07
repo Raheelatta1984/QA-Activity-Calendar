@@ -2,7 +2,7 @@
 
 Run with `npm test` (Node's built-in test runner via `tsx`). The integration suite runs against an isolated temporary database, so it never touches your working data.
 
-**Last run:** 7 Nov 2026 · Node 22.x · `40 tests, 40 pass, 0 fail` · `npm run typecheck` clean · `npm run build` succeeded.
+**Last run:** 8 Nov 2026 · Node 22.x · `75 tests, 75 pass, 0 fail` · `npm run typecheck` clean · `npm run build` succeeded.
 
 ## Automated suites
 
@@ -48,14 +48,26 @@ Run with `npm test` (Node's built-in test runner via `tsx`). The integration sui
 | 38 | ephemeral serverless enhancement vault lists seeded and newly submitted proposals | Serverless `/tmp` enhancement vault + DB listing |
 | 39 | enhancement vault falls back cleanly to `/tmp` when the configured or bundle path is read-only | `EROFS`/`EACCES` fallback on submit, archive and delete |
 | 40 | `readEnhancementMarkdown` synthesises frontmatter Markdown when no disk copy exists | Cross-instance `/api/enhancements/:id` download resilience |
+| 41 | the status flow keeps Building/Built published and archives exactly once | `Building → Built → Archived` transitions never overwrite a rejection |
+| 42 | document scan distinguishes the archived tree from the active tree | `lib/future-enhancements/` vs `archived/` (legacy `archive/` included) |
+| 43 | mark-handovers-built promotes only resolved Building documents | Handover status is written from a verified merge, not a guess |
+| 44 | the archive step accepts Built handovers and refuses anything else | Completion archives Building/Built only; Rejected is never swept |
+| 45 | the deploy sync is a no-op when the build ships no handover documents | Serverless deployments never pay for a sync they cannot use |
+| 46 | the deploy sync honours the opt-out flag | `ENHANCEMENT_DOC_SYNC=false` disables the bootstrap reconciliation |
+| 47 | an archived handover document moves the matching request to Archived | File move drives in-app status; idempotent on re-run |
+| 48 | a Built document is reported without archiving the request | Built is an intermediate state, not an archive |
+| 49 | merged PR resolution writes authoritative archive and issue files | Completion resolves the linked `arena-handover` request |
+| 50 | build verification requires a successful latest Build and test check | Exact-head-SHA gate (also verifiable from `PR_NUMBER`) |
+| 51 | all workflow YAML parses and the CI gate is wired into completion | Completion also runs on the CI-gated merge `workflow_run` |
+| 52 | completion resolution fetches the merged PR when the event carries none | `workflow_run` / manual repair path resolves the merged PR and its linked request |
 
 Full test output (abridged):
 
 ```
-# tests 40
-# pass 40
+# tests 75
+# pass 75
 # fail 0
-# duration_ms 1534
+# duration_ms 2437
 ```
 
 ## Manual verification performed

@@ -53,7 +53,7 @@ merges. PR #6 is open; these workflows become active on `main` after it merges.
 | `enhancement-intake.yml` | push of `lib/future-enhancements/*.md` to `main`, or manual dispatch | Detect added active handovers and create one labelled Arena handoff issue each; no paid agent token |
 | `enhancement-pr.yml` | same-repository PR events targeting `main` | Resolve linked `arena-handover` issues, add exact `Enhancement-Archive:` lines and label the PR |
 | `merge-after-ci.yml` | successful `CI` `workflow_run` from a PR | Verify the exact PR head SHA, labels, same-repository head and required check, then squash-merge eligible PRs |
-| `archive-enhancements.yml` | PR merged into `main` | Resolve authoritative handovers, verify the successful head-SHA build check, move files to `archived/`, push directly or open an archive PR, close issues, clean up branches |
+| `archive-enhancements.yml` | PR merged into `main`, the merge workflow finishing, or a manual PR number | Resolve authoritative handovers, verify the successful head-SHA build check, mark them **Built**, move the files to `archived/`, push directly or open an archive PR, close issues, reconcile statuses, clean up branches |
 
 `workflow_dispatch` on the intake workflow with mode `all_active` backfills the
 two existing Building handovers without waiting for another file to be added.
@@ -166,6 +166,62 @@ authority; an `Enhancement-Archive:` line in an unrelated PR is not enough to
 archive a handover. Archive PRs carry the `enhancement-archive` label and are
 eligible for CI-gated merge without a handover marker.
 
+## Handover lifecycle and status truth
+
+A handover has exactly one status at a time, and both the file and the database
+follow it:
+
+| Status | Where the file is | How it gets there |
+| --- | --- | --- |
+| `Building` | `lib/future-enhancements/` | Moving the proposal to **Building** in `tab.enhancements` publishes it with the GitHub Contents API |
+| `Built` | `lib/future-enhancements/` | `mark-handovers-built.mjs` runs in the completion workflow once the merged PR's `Build and test` check is verified |
+| `Archived` | `lib/future-enhancements/archived/` | `archive-enhancements.mjs` rewrites the status and moves the file; the completion workflow closes the request |
+
+Two things follow from that table:
+
+- **Completion runs twice for a reason.** A merge performed with a workflow
+  token does not emit a `pull_request: closed` event, so the completion workflow
+  is also triggered by the `Merge passing enhancement PR` run finishing. Without
+  that trigger, automation-merged PRs were merged but never completed: the
+  handover stayed `Building`, the file stayed active and the issue stayed open.
+- **The status is reconciled, not remembered.** `scripts/sync-enhancement-docs.mjs`
+  reads the committed documents and updates the enhancement records: an
+  `archived/` document makes the request `Archived` (never over a `Rejected`
+  decision), a `Built` document promotes any earlier stage to `Built`, and a moved
+  file re-points the stored path so downloads stay accurate. It runs
+  automatically on application bootstrap when the deployment bundles the
+  documents, from the completion workflow, and on demand with:
+
+  ```bash
+  npm run enhancement:sync            # apply
+  npm run enhancement:sync -- --dry-run
+  ```
+
+  `GET /api/health` reports the bootstrap result as `enhancementDocSync`, and the
+  generated report is written to `.tmp/enhancement-docs-sync.md` (gitignored).
+  Set `ENHANCEMENT_DOC_SYNC=false` to disable the bootstrap pass, or
+  `ENHANCEMENT_DOC_SYNC_TIMEOUT_MS` to cap it (default 2000 ms).
+
+The **Handover documents** panel (`sec.enhancements.handovers`) shows every
+document the deployment can see, its status and the matching request, and flags
+any request whose status no longer matches its file.
+
+### Repairing a handover that was merged but not completed
+
+Until this change, a PR merged by `Merge passing enhancement PR` was never
+completed (no `pull_request: closed` event). To finish one retrospectively, run
+**Complete enhancement handovers → Run workflow** with the merged pull request
+number:
+
+```text
+Actions → Complete enhancement handovers → Run workflow → pr_number: 9
+```
+
+The workflow fetches that pull request, verifies its `Build and test` check on
+the exact head SHA, marks the handover `Built`, moves it into `archived/`,
+closes the linked request and reconciles the app status. Nothing is archived
+without the verified check and a linked `arena-handover` request.
+
 ## Archive location
 
 Completed files are moved to `lib/future-enhancements/archived/` and their
@@ -181,9 +237,12 @@ belongs to the in-app proposal vault and is unchanged.
 - GitHub Copilot cloud agent is unavailable on the free plan; GitHub Models was
   retired. No free GitHub-native replacement agent is configured.
 - Vercel serverless SQLite is ephemeral. `DATABASE_URL`/Postgres is not
-  implemented by this app; a durable database adapter is needed before the Git
-  workflow can reliably update in-app enhancement status or What's New entries.
-  Add the What's New entry manually as part of the implementation PR.
+  implemented by this app, so a status written by CI would not survive a cold
+  start, and the workflow therefore never opens the database. Instead the app
+  reconciles its status from the committed documents on bootstrap (see
+  [Handover lifecycle](#handover-lifecycle-and-status-truth)); the durable record
+  is the Markdown in Git. Add the What's New entry as part of the implementation
+  PR — it is seeded, not written by CI.
 - The existing Vercel `GITHUB_TOKEN` values were left sensitive and unchanged.
   Any GitHub Actions secret must be provided by the owner through GitHub's UI,
   never pasted into chat or committed.
@@ -201,5 +260,8 @@ belongs to the in-app proposal vault and is unchanged.
 - Confirm `Build and test` succeeded on the PR head SHA.
 - Check the merge and completion workflow summaries for the exact SHA, archive
   commit or fallback archive PR, closed issues and branch cleanup.
+- Confirm the handover went `Building` → `Built` → moved into `archived/` with
+  `status: "Archived"`, and that `/api/health` reports an `enhancementDocSync`
+  entry for the deployment that contains the moved file.
 - Confirm Vercel production deployments have the new environment values; create
   a new deployment if a project is still running an old build.

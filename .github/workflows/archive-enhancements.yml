@@ -1,9 +1,33 @@
 name: Complete enhancement handovers
 
+# Two triggers, one job:
+#
+# 1. `pull_request: closed` fires when a human/policy merges a PR through GitHub
+#    directly (the banner "merged" webhook).
+# 2. `workflow_run` on "Merge passing enhancement PR" fires after the CI-gated
+#    merge workflow has performed the squash-merge itself.
+#
+# (2) is not optional: a merge performed with a workflow token does **not** emit a
+# new `pull_request: closed` event, so PRs merged by the automation were merged
+# and then never completed — the handover stayed Building, the issue stayed open
+# and the file never reached archived/. The workflow_run path closes that gap.
+
 on:
   pull_request:
     types: [closed]
     branches: [main]
+  workflow_run:
+    workflows: ["Merge passing enhancement PR"]
+    types: [completed]
+  # Repair/backfill: complete a pull request that merged before this workflow
+  # could see it (for example, one merged by the automation before the
+  # workflow_run trigger existed). Supply the merged PR number.
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Number of an already-merged pull request to complete
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -17,7 +41,11 @@ concurrency:
 
 jobs:
   complete:
-    if: github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true &&
+       github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' && inputs.pr_number != '')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,10 +56,44 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Resolve the merged pull request to complete
+        id: pr
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMATION_TOKEN || github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          pr="${INPUT_PR_NUMBER:-}"
+          if ! printf '%s' "$pr" | grep -qE '^[0-9]+$'; then
+            if [ -n "${HEAD_SHA:-}" ]; then
+              # For a merge workflow run the head SHA is the verified PR head, so
+              # the associated pull requests identify what was just merged.
+              pr=$(gh api "/repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/pulls" \
+                --jq '[.[] | select(.merged_at != null and .base.ref == "main")] | .[0].number // ""' \
+                2>/dev/null || true)
+            fi
+          fi
+          if ! printf '%s' "$pr" | grep -qE '^[0-9]+$'; then
+            echo "No merged pull request could be resolved for this event; nothing to complete."
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$(gh api "/repos/${GITHUB_REPOSITORY}/pulls/${pr}" --jq '.merged_at // ""')" ]; then
+            echo "Pull request #${pr} is not merged; nothing to complete."
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "number=$pr" >> "$GITHUB_OUTPUT"
+          echo "relevant=true" >> "$GITHUB_OUTPUT"
       - name: Resolve the authoritative handovers for this merged PR
         id: resolve
+        if: steps.pr.outputs.relevant == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.AUTOMATION_TOKEN || github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
           ARCHIVE_NAMES_FILE: .tmp/enhancement-archive-names.txt
           ISSUE_NUMBERS_FILE: .tmp/enhancement-issue-numbers.txt
         run: node scripts/resolve-pr-handovers.mjs
@@ -39,14 +101,21 @@ jobs:
         if: steps.resolve.outputs.relevant == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.AUTOMATION_TOKEN || github.token }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          ARCHIVE_NAMES_FILE: .tmp/enhancement-archive-names.txt
+          ISSUE_NUMBERS_FILE: .tmp/enhancement-issue-numbers.txt
           REQUIRED_CHECK_NAME: ${{ vars.REQUIRED_CHECK_NAME }}
         run: node scripts/verify-pr-build.mjs
+      - name: Mark resolved handovers Built
+        if: steps.resolve.outputs.relevant == 'true'
+        env:
+          ARCHIVE_NAMES_FILE: .tmp/enhancement-archive-names.txt
+        run: node scripts/mark-handovers-built.mjs
       - name: Archive completed handovers (direct push or CI-gated archive PR)
         if: steps.resolve.outputs.relevant == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.AUTOMATION_TOKEN || github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
           ARCHIVE_NAMES_FILE: .tmp/enhancement-archive-names.txt
           ARCHIVED_NAMES_FILE: .tmp/enhancement-archived-names.txt
         run: |
@@ -56,17 +125,21 @@ jobs:
         if: steps.resolve.outputs.relevant == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.AUTOMATION_TOKEN || github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
           ARCHIVED_NAMES_FILE: .tmp/enhancement-archived-names.txt
           ISSUE_NUMBERS_FILE: .tmp/enhancement-issue-numbers.txt
         run: node scripts/finalize-enhancement-issues.mjs
+      - name: Reconcile in-app enhancement status with the archived documents
+        if: steps.resolve.outputs.relevant == 'true'
+        continue-on-error: true
+        run: node scripts/sync-enhancement-docs.mjs --apply
       - name: Check out the merged head branch to judge branch activity
         if: success()
         id: cleanup-head
         continue-on-error: true
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
           path: .tmp/cleanup-head
           fetch-depth: 0
           persist-credentials: false
@@ -76,6 +149,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.AUTOMATION_TOKEN || github.token }}
           BRANCH_CLEANUP_PREFIXES: ${{ vars.BRANCH_CLEANUP_PREFIXES }}
           CLEANUP_ALL_MERGED_BRANCHES: ${{ vars.CLEANUP_ALL_MERGED_BRANCHES }}
-          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref || github.event.workflow_run.head_branch }}
           HEAD_BRANCH_DIR: ${{ steps.cleanup-head.outcome == 'success' && '.tmp/cleanup-head' || '' }}
         run: node scripts/delete-merged-branch.mjs

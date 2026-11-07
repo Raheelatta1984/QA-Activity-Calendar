@@ -147,6 +147,7 @@ export const TAB_CATALOGUE: TabSeed[] = [
     sections: [
       { id: "sec.enhancements.intake", label: "Submit a proposal", description: "Live AI options for the outcome, impacted IDs, title, brief, requirements, impacts, expected outcome, success criteria and markdown handover — every field stays editable." },
       { id: "sec.enhancements.vault", label: "Enhancement vault", description: "Submitted, reviewed and archived requests with markdown export." },
+      { id: "sec.enhancements.handovers", label: "Handover documents", description: "Building → Built → Archived handover Markdown in lib/future-enhancements/ with the status each document carries." },
     ],
   },
   {
@@ -295,6 +296,23 @@ export const CHANGELOG_ENTRIES: Array<{
     pr: 4,
   },
   {
+    version: "1.3.0",
+    title: "Enhancement handovers archive themselves",
+    offset: 0,
+    type: "feature",
+    summary:
+      "Approved enhancement Markdown now follows a visible Building → Built → Archived lifecycle: a merged implementation marks its handover Built, the completion workflow archives the file, and the request status catches up on the next deployment instead of being edited by hand.",
+    items: [
+      "New Handover documents section (sec.enhancements.handovers) under Future Enhancements (tab.enhancements) shows every lib/future-enhancements/ file, its status and the matching request",
+      "A merged implementation PR marks its handover Built before the file is moved to lib/future-enhancements/archived/ with status Archived",
+      "Completion now also runs after the CI-gated merge workflow: automation-merged PRs are archived and their requests closed automatically",
+      "In-app status is reconciled from the committed documents on bootstrap and from the vault, then confirmed on /api/health as enhancementDocSync",
+      "Generated reconciliation reports live in the gitignored .tmp/ directory; the approved handover record stays in Git as the source of truth",
+      "Calendar filters, FTE demand, release governance and role scoping are unchanged",
+    ],
+    pr: null,
+  },
+  {
     version: "1.2.0",
     title: "One-time login welcome message",
     offset: 0,
@@ -391,6 +409,8 @@ export const AI_NOTES: Record<string, string> = {
     "AI guidance · Build information is read-only evidence for support calls: schema migrations applied, table count, AI provider and whether demo rows exist.",
   "sec.enhancements.vault":
     "AI guidance · Each proposal keeps its Markdown file in enhancements/. Archiving moves it to enhancements/archive/ so a shipped request is never re-reviewed.",
+  "sec.enhancements.handovers":
+    "AI guidance · Building publishes the handover, Built means the implementation merged and Archived means the file now lives in lib/future-enhancements/archived/. The deployment that contains the moved file updates the request status, so never archive by hand.",
   "sec.imports.history":
     "AI guidance · Batch history is the audit trail for every import: dry runs write nothing to activities and every row keeps its disposition and source row number.",
   "sec.imports.run":

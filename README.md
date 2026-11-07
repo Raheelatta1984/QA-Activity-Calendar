@@ -34,7 +34,7 @@ Demo identities all use the password `demo1234`:
 | Capacity | `tab.capacity` | Resource × day grid with inline hours, occupied vs productive utilisation, monthly pivot, FTE demand chart |
 | Reporting | `tab.reporting` | Bug ledger linked to activities and services, derived status, progress bars, service matrix |
 | Releases | `tab.releases` | Release feed, PQU trains with flags, audited go/no-go governance, deployment formula parity |
-| Future Enhancements | `tab.enhancements` | Live AI-drafted proposals (every field suggested, always editable), markdown vault in the repo, stage flow, archive |
+| Future Enhancements | `tab.enhancements` | Live AI-drafted proposals (every field suggested, always editable), markdown vault in the repo, stage flow, handover documents panel and archive |
 | Data Quality | `tab.validation` | Rule catalogue + idempotent validation queue + audit trail |
 | Import Centre | `tab.imports` | Dry-run reconciliation, idempotent apply, row provenance |
 | Master Setup | `tab.setup` | Company, departments, drag-and-drop hierarchy, employees, tab/section toggles, holidays, defaults |
@@ -142,9 +142,15 @@ prompt. Arena Agent Mode is user-initiated, so the issue is a reliable handoff
 to a new Arena coding session; it cannot start that session itself. No paid
 GitHub Copilot cloud agent, GitHub Models inference or external LLM token is
 used. PRs are linked to their request, gated by the `Build and test` check,
-squash-merged after that exact head SHA passes, then completed by archiving the
-handover into `lib/future-enhancements/archived/`, closing the issue and
-cleaning up branches within the configured scope. A protected `main` can be
+squash-merged after that exact head SHA passes, then completed by marking the
+handover **Built**, archiving it into `lib/future-enhancements/archived/`,
+closing the issue and cleaning up branches within the configured scope. The
+completion workflow also runs after the CI-gated merge itself, because a merge
+performed with a workflow token emits no `pull_request` closed event. The app
+reconciles its request statuses from the committed documents (Building → Built →
+Archived) on bootstrap and via `npm run enhancement:sync`, so the Markdown record
+and the in-app status never disagree; `sec.enhancements.handovers` shows both
+side by side. A protected `main` can be
 handled through a generated CI-gated archive PR instead of a direct push.
 Unrelated branches are preserved, and active Arena session branches
 (`arena/<session-id>`) are never deleted automatically. The default allowlist
