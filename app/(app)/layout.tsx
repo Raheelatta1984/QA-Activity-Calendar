@@ -6,10 +6,14 @@ import { Shell, type ShellPerson, type ShellTab } from "@/components/Shell";
 import { validationSummary } from "@/lib/validation";
 import { isoToday } from "@/lib/dates";
 import { Icon } from "@/components/icons";
+import { getSession } from "@/lib/auth";
+import { LOGIN_WELCOME_HEADER } from "@/lib/login-welcome";
+import { isLoginWelcomeTokenForSession } from "@/lib/login-welcome-token";
 
 export const dynamic = "force-dynamic";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  const session = await getSession();
   const viewer = await getViewer();
   const org = viewer.org;
   const roleRank = ROLE_RANK[viewer.role] ?? 0;
@@ -81,6 +85,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       departments={org.departments.map((d) => ({ id: d.id, name: d.name, enabled: d.enabled }))}
       activeDepartmentId={viewer.activeDepartmentId}
       ephemeral={dbEphemeral}
+      showLoginWelcome={isLoginWelcomeTokenForSession(headerBag.get(LOGIN_WELCOME_HEADER), session)}
     >
       {tabBlocked ? (
         <main className="page">

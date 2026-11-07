@@ -294,6 +294,19 @@ export const CHANGELOG_ENTRIES: Array<{
     ],
     pr: 4,
   },
+  {
+    version: "1.2.0",
+    title: "One-time login welcome message",
+    offset: 0,
+    type: "feature",
+    summary: "A personalised welcome now greets each user after successful authentication and disappears after two seconds.",
+    items: [
+      "Signed, short-lived login flash ensures the message appears once and does not return on refresh or failed authentication",
+      "Accessible application-shell notification with manual dismissal on the Dashboard landing tab (tab.dashboard)",
+      "Calendar filters, scheduling, fiscal periods and holiday behaviour are unchanged",
+    ],
+    pr: null,
+  },
 ];
 
 export const AI_NOTES: Record<string, string> = {

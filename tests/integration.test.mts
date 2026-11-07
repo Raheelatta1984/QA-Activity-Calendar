@@ -69,6 +69,16 @@ test("database seeds reference configuration and demo data", () => {
   assert.ok((get<{ n: number }>("SELECT COUNT(*) AS n FROM activities WHERE is_demo = 0")?.n ?? 0) === 0);
 });
 
+test("What's New records the one-time login welcome and its landing tab", () => {
+  const entry = get<{ title: string; summary: string; items: string }>(
+    `SELECT title, summary, items FROM changelog WHERE version = '1.2.0'`
+  );
+  assert.ok(entry);
+  assert.match(entry.title, /login welcome/i);
+  assert.match(entry.summary, /two seconds/i);
+  assert.match(entry.items, /tab\.dashboard/);
+});
+
 test("management view sees more than an individual contributor", () => {
   const admin = viewerFor("amara.okafor@hfm.demo");
   const ic = viewerFor("hana.suzuki@hfm.demo");

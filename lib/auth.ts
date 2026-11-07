@@ -4,6 +4,11 @@ import { get, run } from "./db";
 import { token } from "./ids";
 import { ensureBootstrapped } from "./bootstrap";
 import { encodeSessionToken, decodeSessionToken, signValue } from "./session-token";
+import {
+  LOGIN_WELCOME_COOKIE,
+  LOGIN_WELCOME_COOKIE_MAX_AGE_SECONDS,
+} from "./login-welcome";
+import { createLoginWelcomeToken, type LoginWelcomeSession } from "./login-welcome-token";
 
 export { encodeSessionToken, decodeSessionToken, signValue };
 export type { SessionToken } from "./session-token";
@@ -75,6 +80,29 @@ export async function clearSessionCookie() {
   store.delete(SESSION_COOKIE);
 }
 
+export async function setLoginWelcomeCookie(input: LoginWelcomeSession) {
+  const store = await cookies();
+  store.set(LOGIN_WELCOME_COOKIE, createLoginWelcomeToken(input), {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: LOGIN_WELCOME_COOKIE_MAX_AGE_SECONDS,
+  });
+}
+
+export async function clearLoginWelcomeCookie() {
+  const store = await cookies();
+  store.set(LOGIN_WELCOME_COOKIE, "", {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    secure: process.env.NODE_ENV === "production",
+    expires: new Date(0),
+    maxAge: 0,
+  });
+}
+
 export async function getSession() {
   ensureBootstrapped();
   const store = await cookies();
@@ -112,6 +140,7 @@ export async function destroySession() {
     if (parsed) run(`DELETE FROM sessions WHERE id = ?`, parsed.s);
   }
   await clearSessionCookie();
+  await clearLoginWelcomeCookie();
 }
 
 export async function setImpersonation(personId: string | null) {
