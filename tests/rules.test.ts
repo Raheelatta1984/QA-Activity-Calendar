@@ -513,19 +513,26 @@ test("archive script only moves explicitly named Building handovers", async () =
   const { execFileSync } = await import("node:child_process");
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qa-archive-test-"));
   const root = path.join(dir, "lib/future-enhancements");
+  const archivedNames = path.join(dir, ".tmp/archived.txt");
   fs.mkdirSync(root, { recursive: true });
   const script = path.join(process.cwd(), "scripts/archive-enhancements.mjs");
+  const scriptEnv = (body: string) => ({
+    ...process.env,
+    PR_BODY: body,
+    ARCHIVE_NAMES_FILE: "",
+    ARCHIVED_NAMES_FILE: archivedNames,
+  });
   try {
     const name = "ENH-0004-example-enh-123.md";
     const other = "ENH-0005-other-enh-456.md";
     const doc = '---\nref: "ENH-0004"\nstatus: "Building"\n---\n\n# Content\n';
     fs.writeFileSync(path.join(root, name), doc);
     fs.writeFileSync(path.join(root, other), doc);
-    execFileSync(process.execPath, [script], { cwd: dir, env: { ...process.env, PR_BODY: `Enhancement-Archive: ${name}` } });
+    execFileSync(process.execPath, [script], { cwd: dir, env: scriptEnv(`Enhancement-Archive: ${name}`) });
     assert.equal(fs.existsSync(path.join(root, name)), false);
     assert.equal(fs.existsSync(path.join(root, other)), true);
-    assert.match(fs.readFileSync(path.join(root, "archive", name), "utf8"), /status: "Archived"/);
-    execFileSync(process.execPath, [script], { cwd: dir, env: { ...process.env, PR_BODY: "Enhancement-Archive: ../../bad.md" } });
+    assert.match(fs.readFileSync(path.join(root, "archived", name), "utf8"), /status: "Archived"/);
+    execFileSync(process.execPath, [script], { cwd: dir, env: scriptEnv("Enhancement-Archive: ../../bad.md") });
     assert.equal(fs.existsSync(path.join(root, other)), true);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

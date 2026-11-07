@@ -1,0 +1,42 @@
+name: Enhancement handover intake
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "lib/future-enhancements/*.md"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Create requests for new files in the latest push, or backfill all active Building handovers.
+        type: choice
+        required: true
+        default: all_active
+        options:
+          - all_active
+          - new
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: enhancement-intake-main
+  cancel-in-progress: false
+
+jobs:
+  create-development-requests:
+    # A push with matching paths on a feature branch must never create issues.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Create one Arena handoff issue per active handover
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/enhancement-intake.mjs
