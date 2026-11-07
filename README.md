@@ -141,12 +141,15 @@ A push that adds an `ENH-*.md` handover now creates one durable
 issue is a reliable handoff to a new Arena coding session; it cannot start that
 session itself. An optional GitHub Copilot cloud-agent task can provide fully
 unattended development when enabled. PRs are linked to their request, gated by
-the `Build and test` check, optionally auto-merged, then completed by archiving
-the handover into `lib/future-enhancements/archived/`, closing the issue and
-deleting only the merged automation head branch. Unrelated branches are never
-deleted. See [the handover guide](lib/future-enhancements/README.md) and
-[automation setup](docs/ENHANCEMENT-AUTOMATION.md) for configuration and
-limits. The Git-side workflow does not sync the in-app SQLite status.
+the `Build and test` check, squash-merged after that exact head SHA passes, then
+completed by archiving the handover into `lib/future-enhancements/archived/`,
+closing the issue and cleaning up branches within the configured scope. A
+protected `main` can be handled through a generated CI-gated archive PR instead
+of a direct push. Unrelated branches are preserved by default;
+`CLEANUP_ALL_MERGED_BRANCHES` is an explicit opt-in for broader cleanup. Vercel
+runtime variables are documented in [automation setup](docs/ENHANCEMENT-AUTOMATION.md);
+GitHub Actions variables/secrets are configured separately in GitHub. The
+Git-side workflow does not sync the in-app SQLite status.
 
 The download button uses the Markdown already rendered on the authenticated page,
 so it does not navigate through a separate serverless instance. This does not

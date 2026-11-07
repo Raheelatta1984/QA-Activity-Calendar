@@ -10,7 +10,6 @@ import { parse as parseYaml } from "yaml";
 import * as utils from "../scripts/lib/enhancement-utils.mjs";
 import { buildIssueBody, runIntake } from "../scripts/enhancement-intake.mjs";
 import { runLinkPullRequest } from "../scripts/link-enhancement-pr.mjs";
-import { hasRequiredCheck, runEnableAutoMerge } from "../scripts/enable-auto-merge.mjs";
 import { latestChecksByName, runVerifyBuild } from "../scripts/verify-pr-build.mjs";
 import { runResolvePullRequest } from "../scripts/resolve-pr-handovers.mjs";
 import { runFinalizeIssues } from "../scripts/finalize-enhancement-issues.mjs";
@@ -439,55 +438,6 @@ test("build verification requires a successful latest Build and test check", asy
     () => runVerifyBuild(baseEnv(dir, {}, { PR_HEAD_SHA: sha }), { fetchImpl: failureRouter.fetchImpl }),
     /Required check "Build and test" is completed\/failure/,
   );
-});
-
-test("auto-merge refuses unprotected main and enables squash auto-merge only after the required check exists", async (t) => {
-  const dir = tempDir(t);
-  assert.equal(hasRequiredCheck({ contexts: [], checks: [{ context: "Build and test" }] }, "Build and test"), true);
-  assert.equal(hasRequiredCheck({ contexts: ["lint"], checks: [] }, "Build and test"), false);
-
-  const unprotected = router([
-    {
-      ...exact("GET", `/repos/${REPO}/branches/main/protection/required_status_checks`),
-      handler: () => json({ message: "Not Found" }, 404),
-    },
-  ]);
-  await assert.rejects(
-    () => runEnableAutoMerge(baseEnv(dir, pullRequestEvent(), {
-      GITHUB_EVENT_NAME: "pull_request",
-      AUTO_MERGE_ENABLED: "true",
-      AUTOMATION_TOKEN: "automation-token",
-    }), { fetchImpl: unprotected.fetchImpl }),
-    /must have a required status check/,
-  );
-
-  const mutations = [];
-  const protectedRouter = router([
-    {
-      ...exact("GET", `/repos/${REPO}/branches/main/protection/required_status_checks`),
-      handler: ({ init }) => {
-        assert.equal(init.headers.Authorization, "Bearer automation-token");
-        return json({ contexts: ["Build and test"], checks: [] });
-      },
-    },
-    {
-      ...exact("POST", "/graphql"),
-      handler: ({ body }) => {
-        if (String(body.query).includes("enablePullRequestAutoMerge")) {
-          mutations.push(body);
-          return json({ data: { enablePullRequestAutoMerge: { clientMutationId: null } } });
-        }
-        return json({ data: { repository: { pullRequest: { id: "PR_1", autoMergeRequest: null } } } });
-      },
-    },
-  ]);
-  const result = await runEnableAutoMerge(baseEnv(dir, pullRequestEvent(), {
-    GITHUB_EVENT_NAME: "pull_request",
-    AUTO_MERGE_ENABLED: "true",
-    AUTOMATION_TOKEN: "automation-token",
-  }), { fetchImpl: protectedRouter.fetchImpl });
-  assert.equal(result.status, "enabled");
-  assert.equal(mutations[0].variables.mergeMethod, "SQUASH");
 });
 
 test("issue finalisation closes the linked request with an idempotent completion comment", async (t) => {

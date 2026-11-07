@@ -1,21 +1,30 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { githubRequest, readGithubEvent, repositoryFromEnv } from "./lib/github-api.mjs";
+import { githubPages, githubRequest, readGithubEvent, repositoryFromEnv } from "./lib/github-api.mjs";
 import {
   appendStepSummary,
   encodeBranchPath,
+  envFlag,
   hasAutomationPrefix,
   isHexSha,
   isSafeBranchName,
   parseBranchPrefixes,
 } from "./lib/enhancement-utils.mjs";
 
-export async function runDeleteMergedBranch(env = process.env, { fetchImpl = globalThis.fetch } = {}) {
-  const event = readGithubEvent(env);
-  const repository = repositoryFromEnv(env);
+async function branchHasOpenPr(env, repository, branch, fetchImpl) {
+  const head = encodeURIComponent(`${repository.owner}:${branch}`);
+  const { data } = await githubRequest(
+    env,
+    `/repos/${repository.fullName}/pulls?state=open&head=${head}&per_page=1`,
+    { fetchImpl },
+  );
+  return Array.isArray(data) && data.length > 0;
+}
+
+async function deleteHeadBranch(env, repository, event, fetchImpl) {
   const pr = event.pull_request;
   const skip = (reason) => {
-    appendStepSummary(env, "Merged branch cleanup", [`Skipped: ${reason}`]);
+    appendStepSummary(env, "Merged branch cleanup", [`Head branch skipped: ${reason}`]);
     return { status: "skipped", reason };
   };
   if (!pr || !pr.merged) return skip("PR was not merged");
@@ -38,7 +47,6 @@ export async function runDeleteMergedBranch(env = process.env, { fetchImpl = glo
   if (branchInfo.response.status !== 200 || branchInfo.data?.protected) {
     return skip("branch is protected or its protection cannot be read");
   }
-
   const ref = await githubRequest(env, `/repos/${repository.fullName}/git/ref/heads/${encoded}`, {
     fetchImpl,
     allow: [404],
@@ -46,22 +54,65 @@ export async function runDeleteMergedBranch(env = process.env, { fetchImpl = glo
   if (ref.response.status !== 200 || ref.data?.object?.sha !== sha) {
     return skip("branch tip differs from the merged PR head; preserving newer commits");
   }
-
-  const open = await githubRequest(
-    env,
-    `/repos/${repository.fullName}/pulls?state=open&head=${encodeURIComponent(`${repository.owner}:${branch}`)}&per_page=1`,
-    { fetchImpl },
-  );
-  if (Array.isArray(open.data) && open.data.length) return skip("branch still has an open pull request");
-
+  if (await branchHasOpenPr(env, repository, branch, fetchImpl)) {
+    return skip("branch still has an open pull request");
+  }
   const deleted = await githubRequest(env, `/repos/${repository.fullName}/git/refs/heads/${encoded}`, {
     method: "DELETE",
     fetchImpl,
     allow: [404, 422],
   });
   if (deleted.response.status >= 300) return skip("branch was already deleted or could not be removed");
-  appendStepSummary(env, "Merged branch cleanup", [`Deleted merged automation branch \`${branch}\`.`]);
+  appendStepSummary(env, "Merged branch cleanup", [`Deleted merged automation head branch \`${branch}\`.`]);
   return { status: "deleted", branch };
+}
+
+async function cleanupAllMergedBranches(env, repository, event, headBranch, fetchImpl) {
+  const defaultBranch = event.repository?.default_branch || "main";
+  const branches = await githubPages(
+    env,
+    `/repos/${repository.fullName}/branches?per_page=100`,
+    { fetchImpl },
+  );
+  const deleted = [];
+  for (const entry of branches) {
+    const branch = String(entry?.name || "");
+    if (!branch || branch === defaultBranch || branch === "main" || branch === headBranch) continue;
+    if (entry.protected || !isSafeBranchName(branch)) continue;
+    const encoded = encodeBranchPath(branch);
+    const compare = await githubRequest(
+      env,
+      `/repos/${repository.fullName}/compare/${encodeBranchPath(defaultBranch)}...${encoded}`,
+      { fetchImpl, allow: [404] },
+    );
+    const fullyMerged = compare.response.status === 200 &&
+      Number(compare.data?.ahead_by ?? 1) === 0 &&
+      ["identical", "behind"].includes(String(compare.data?.status || ""));
+    if (!fullyMerged) continue;
+    if (await branchHasOpenPr(env, repository, branch, fetchImpl)) continue;
+    const response = await githubRequest(env, `/repos/${repository.fullName}/git/refs/heads/${encoded}`, {
+      method: "DELETE",
+      fetchImpl,
+      allow: [403, 404, 422],
+    });
+    if (response.response.status < 300) deleted.push(branch);
+  }
+  appendStepSummary(env, "Optional full branch cleanup", [
+    `CLEANUP_ALL_MERGED_BRANCHES=true; deleted ${deleted.length} fully merged, unprotected branch(es).`,
+    ...deleted.map((branch) => `Deleted \`${branch}\`.`),
+  ]);
+  return { status: "completed", deleted };
+}
+
+export async function runDeleteMergedBranch(env = process.env, { fetchImpl = globalThis.fetch } = {}) {
+  const event = readGithubEvent(env);
+  const repository = repositoryFromEnv(env);
+  const headBranch = String(event.pull_request?.head?.ref || "");
+  const head = await deleteHeadBranch(env, repository, event, fetchImpl);
+  const cleanup = envFlag(env, "CLEANUP_ALL_MERGED_BRANCHES", false)
+    ? await cleanupAllMergedBranches(env, repository, event, headBranch, fetchImpl)
+    : { status: "disabled" };
+  return { ...head, cleanup };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

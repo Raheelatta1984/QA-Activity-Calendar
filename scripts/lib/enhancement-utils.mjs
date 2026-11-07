@@ -6,6 +6,7 @@ export const ACTIVE_DIR = "lib/future-enhancements";
 export const ARCHIVE_DIR = "lib/future-enhancements/archived";
 export const LEGACY_ARCHIVE_DIR = "lib/future-enhancements/archive";
 export const HANDOVER_LABEL = "arena-handover";
+export const ARCHIVE_PR_LABEL = "enhancement-archive";
 export const REQUIRED_CHECK_NAME = "Build and test";
 export const DEFAULT_BRANCH_PREFIXES = ["copilot/", "enh/", "enhancement/", "automation/"];
 export const DEFAULT_TMP_DIR = ".tmp";
@@ -22,6 +23,13 @@ export function isSafeHandoverName(value) {
 
 export function isHexSha(value) {
   return /^[0-9a-f]{40}$/i.test(String(value || ""));
+}
+
+/** Environment flags: absent/empty means the documented default. */
+export function envFlag(env, key, defaultValue = false) {
+  const raw = String(env[key] ?? "").trim().toLowerCase();
+  if (!raw) return defaultValue;
+  return !["false", "0", "off", "no"].includes(raw);
 }
 
 export function isZeroSha(value) {

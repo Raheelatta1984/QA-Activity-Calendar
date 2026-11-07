@@ -16,8 +16,11 @@ PR-coordination workflow adds the archive line if it is missing. Run
 review.
 
 Do not merge the PR, delete unrelated branches, or archive a handover manually.
-The completion workflow archives after a merged PR's `Build and test` check is
-verified. It deletes only the merged PR head branch when that branch is in the
-configured automation-prefix allowlist; other branches, protected branches and
-branches with newer commits are preserved. Inspect workflow results before
-claiming a handover is complete.
+The CI-gated merge workflow performs the merge after `Build and test` succeeds
+on the exact PR head SHA; the completion workflow then archives the handover. It
+pushes the archive commit directly when allowed, otherwise opens a generated
+CI-gated archive PR. By default it deletes only the merged PR head branch when
+that branch is in the configured automation-prefix allowlist; other branches,
+protected branches and branches with newer commits are preserved. The optional
+`CLEANUP_ALL_MERGED_BRANCHES` setting can broaden this cleanup, but is off by
+default. Inspect workflow results before claiming a handover is complete.
