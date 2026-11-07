@@ -602,6 +602,8 @@ test("all workflow YAML parses and the CI gate is wired into completion", () => 
   assert.equal(ci.jobs["build-and-test"].name, "Build and test");
   const intake = parseYaml(fs.readFileSync(path.join(workflowDir, "enhancement-intake.yml"), "utf8"));
   assert.deepEqual(intake.on.push.paths, ["lib/future-enhancements/*.md"]);
+  assert.equal(intake.permissions.metadata, undefined);
+  assert.match(intake.jobs["create-development-requests"].if, /github\.ref/);
   const completion = parseYaml(fs.readFileSync(path.join(workflowDir, "archive-enhancements.yml"), "utf8"));
   assert.equal(completion.jobs.complete.steps.some((step) => step.run?.includes("verify-pr-build.mjs")), true);
   assert.equal(completion.jobs.complete.steps.some((step) => step.env?.ARCHIVE_NAMES_FILE), true);
