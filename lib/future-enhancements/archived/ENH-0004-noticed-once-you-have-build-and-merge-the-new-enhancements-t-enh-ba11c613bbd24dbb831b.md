@@ -1,7 +1,7 @@
 ---
 ref: "ENH-0004"
 title: "Noticed once you have build and merge the new enhancements then enhacments md files needs…"
-status: "Building"
+status: "Archived"
 submitted_by: "Amara Okafor"
 submitted_on: "2026-11-08"
 app_sections: "sec.enhancements.intake, sec.enhancements.vault, sec.changelog.about"

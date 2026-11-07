@@ -340,6 +340,18 @@ test("new workflows, docs and env example wire the limitation fixes", () => {
     archive.jobs.complete.steps.some((step) => step.run?.includes("sync-enhancement-docs.mjs")),
     true,
   );
+  // A merge workflow run has already merged the PR, so workflow_run.head_sha is
+  // the base-branch tip, not the PR head. Resolving the PR must therefore use the
+  // merge commit, otherwise the completion run reports success and does nothing
+  // (which is how merged handovers were left unarchived).
+  const resolveStep = archive.jobs.complete.steps.find((step) => step.id === "pr");
+  assert.equal(resolveStep.env.UPSTREAM_WORKFLOW, "${{ github.event.workflow_run.name }}");
+  assert.match(resolveStep.run, /git rev-parse HEAD/);
+  assert.match(resolveStep.run, /commits\/\$\{base_sha\}\/pulls/);
+  // A silent no-op must surface as a warning instead of a green run.
+  assert.match(resolveStep.run, /::warning title=Nothing to complete::/);
+  // The manual repair input documented in the runbook must exist.
+  assert.equal(archive.on.workflow_dispatch.inputs.pr_number.required, true);
   const mergeWorkflow = readWorkflow("merge-after-ci.yml");
   assert.equal(
     mergeWorkflow.jobs.merge.steps.some((step) => step.id === "merge"),
