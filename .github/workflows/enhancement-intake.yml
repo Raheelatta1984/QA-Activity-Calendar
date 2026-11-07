@@ -1,0 +1,43 @@
+name: Enhancement handover intake
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "lib/future-enhancements/*.md"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Create requests for new files in the latest push, or backfill all active Building handovers.
+        type: choice
+        required: true
+        default: all_active
+        options:
+          - all_active
+          - new
+
+permissions:
+  contents: read
+  issues: write
+  metadata: read
+
+concurrency:
+  group: enhancement-intake-main
+  cancel-in-progress: false
+
+jobs:
+  create-development-requests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Create one development request per active handover
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          COPILOT_AGENT_ENABLED: ${{ vars.COPILOT_AGENT_ENABLED }}
+          COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
+        run: node scripts/enhancement-intake.mjs

@@ -11,7 +11,7 @@
     "db:seed": "tsx scripts/seed.ts",
     "db:reset": "tsx scripts/reset.ts",
     "import": "tsx scripts/import.ts",
-    "test": "tsx --test tests/rules.test.ts tests/integration.test.mts",
+    "test": "tsx --test tests/rules.test.ts tests/integration.test.mts tests/automation.test.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "next lint",
     "db:backup": "tsx scripts/backup.ts",
@@ -30,7 +30,8 @@
     "@types/react": "19.0.2",
     "@types/react-dom": "19.0.2",
     "tsx": "4.19.2",
-    "typescript": "5.7.2"
+    "typescript": "5.7.2",
+    "yaml": "^2.9.1"
   },
   "engines": {
     "node": "22.x"
