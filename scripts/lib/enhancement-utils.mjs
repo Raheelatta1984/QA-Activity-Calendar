@@ -82,6 +82,17 @@ export function isBuildingHandover(content) {
   return Boolean(header && /^status:\s*"Building"\s*$/m.test(header));
 }
 
+/** A handover that survived the build step and is waiting for its archive move. */
+export function isBuiltHandover(content) {
+  const header = parseFrontmatter(content);
+  return Boolean(header && /^status:\s*"Built"\s*$/m.test(header));
+}
+
+/** Active handovers the completion workflow may resolve (Building or Built). */
+export function isBuiltOrBuildingHandover(content) {
+  return isBuildingHandover(content) || isBuiltHandover(content);
+}
+
 export function handoverTitle(content, fallback = "Approved enhancement") {
   const header = parseFrontmatter(content);
   const match = header?.match(/^title:\s*"([^"\n]*)"\s*$/m);

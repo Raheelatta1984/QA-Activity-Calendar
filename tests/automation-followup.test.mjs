@@ -328,6 +328,23 @@ test("new workflows, docs and env example wire the limitation fixes", () => {
     archive.jobs.complete.steps.some((step) => step.run?.includes("push-archive-or-pr.mjs")),
     true,
   );
+  // A merge performed with a workflow token emits no pull_request closed event,
+  // so completion must also react to the merge workflow finishing.
+  assert.deepEqual(archive.on.workflow_run?.workflows, ["Merge passing enhancement PR"]);
+  assert.match(archive.jobs.complete.if, /workflow_run/);
+  assert.equal(
+    archive.jobs.complete.steps.some((step) => step.run?.includes("mark-handovers-built.mjs")),
+    true,
+  );
+  assert.equal(
+    archive.jobs.complete.steps.some((step) => step.run?.includes("sync-enhancement-docs.mjs")),
+    true,
+  );
+  const mergeWorkflow = readWorkflow("merge-after-ci.yml");
+  assert.equal(
+    mergeWorkflow.jobs.merge.steps.some((step) => step.id === "merge"),
+    true,
+  );
   assert.equal(
     archive.jobs.complete.steps.some((step) => step.env?.CLEANUP_ALL_MERGED_BRANCHES),
     true,
@@ -339,12 +356,16 @@ test("new workflows, docs and env example wire the limitation fixes", () => {
   );
   assert.ok(cleanupHead, "archive workflow needs a cleanup-head checkout step");
   assert.equal(cleanupHead.with?.path, ".tmp/cleanup-head");
-  assert.equal(cleanupHead.with?.ref, "${{ github.event.pull_request.head.sha }}");
+  // The completion workflow runs for a human merge (pull_request) and for a
+  // CI-gated workflow merge (workflow_run), so the head is resolved from either.
+  assert.match(cleanupHead.with?.ref, /github\.event\.pull_request\.head\.sha/);
+  assert.match(cleanupHead.with?.ref, /github\.event\.workflow_run\.head_sha/);
   const cleanupStep = archive.jobs.complete.steps.find(
     (step) => step.run?.includes("delete-merged-branch.mjs"),
   );
   assert.match(cleanupStep.env.HEAD_BRANCH_DIR, /cleanup-head/);
-  assert.equal(cleanupStep.env.HEAD_BRANCH, "${{ github.event.pull_request.head.ref }}");
+  assert.match(cleanupStep.env.HEAD_BRANCH, /github\.event\.pull_request\.head\.ref/);
+  assert.match(cleanupStep.env.HEAD_BRANCH, /github\.event\.workflow_run\.head_branch/);
   const docs = fs.readFileSync(path.join(repoRoot, "docs/ENHANCEMENT-AUTOMATION.md"), "utf8");
   assert.match(docs, /user-initiated/);
   assert.match(docs, /arena\.ai\/agent/);
@@ -374,6 +395,8 @@ test("new workflows, docs and env example wire the limitation fixes", () => {
     "REQUIRED_CHECK_NAME",
     "BRANCH_CLEANUP_PREFIXES",
     "CLEANUP_ALL_MERGED_BRANCHES",
+    "ENHANCEMENT_DOC_SYNC",
+    "ENHANCEMENT_DOC_SYNC_TIMEOUT_MS",
   ]) {
     assert.match(envExample, new RegExp(`\\b${key}\\b`), `${key} missing from .env.example`);
   }

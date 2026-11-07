@@ -73,6 +73,8 @@ export async function runArchivePush(
 ) {
   const repository = repositoryFromEnv(env);
   const prNumber = String(env.PR_NUMBER || "").replace(/[^0-9]/g, "");
+  // Stage the whole handover tree: mark-handovers-built.mjs updates the active
+  // file, and the archive move is a rename into archived/.
   gitImpl(["add", "-A", "lib/future-enhancements"]);
   if (!stagedChanges(gitImpl)) {
     appendStepSummary(env, "Archive commit", ["No staged handover changes to publish."]);
@@ -81,7 +83,11 @@ export async function runArchivePush(
 
   gitImpl(["config", "user.name", "github-actions[bot]"]);
   gitImpl(["config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"]);
-  gitImpl(["commit", "-m", `docs: archive handovers completed by PR #${prNumber || "unknown"}`]);
+  gitImpl([
+    "commit",
+    "-m",
+    `docs: mark Built and archive handovers completed by PR #${prNumber || "unknown"}`,
+  ]);
 
   try {
     gitImpl(["pull", "--rebase", "origin", "main"]);

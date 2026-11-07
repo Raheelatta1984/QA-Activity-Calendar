@@ -1,6 +1,6 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { githubPages, repositoryFromEnv } from "./lib/github-api.mjs";
+import { githubPages, githubRequest, repositoryFromEnv } from "./lib/github-api.mjs";
 import { REQUIRED_CHECK_NAME, appendStepSummary, isHexSha } from "./lib/enhancement-utils.mjs";
 
 function latestRunKey(run) {
@@ -18,11 +18,28 @@ export function latestChecksByName(runs) {
   return latest;
 }
 
+const PR_NUMBER_RE = /^[0-9]+$/;
+
+/** The PR head SHA to verify: explicit, else looked up from the pull request. */
+async function resolveHeadSha(env, repository, fetchImpl) {
+  const explicit = String(env.PR_HEAD_SHA || "").trim();
+  if (explicit) return explicit;
+  const prNumber = String(env.PR_NUMBER || "").trim();
+  if (!PR_NUMBER_RE.test(prNumber)) {
+    throw new Error("PR_HEAD_SHA or PR_NUMBER must identify the merged pull request.");
+  }
+  const { data } = await githubRequest(env, `/repos/${repository.fullName}/pulls/${prNumber}`, { fetchImpl });
+  const sha = String(data?.head?.sha || "").trim();
+  if (!isHexSha(sha)) throw new Error(`Pull request #${prNumber} has no valid head SHA.`);
+  return sha;
+}
+
 export async function runVerifyBuild(env = process.env, { fetchImpl = globalThis.fetch } = {}) {
-  const sha = String(env.PR_HEAD_SHA || "").trim();
+  const repositoryForSha = repositoryFromEnv(env);
+  const sha = await resolveHeadSha(env, repositoryForSha, fetchImpl);
   if (!isHexSha(sha)) throw new Error("PR_HEAD_SHA must be a 40-character commit SHA.");
   const requiredCheck = String(env.REQUIRED_CHECK_NAME || REQUIRED_CHECK_NAME).trim() || REQUIRED_CHECK_NAME;
-  const repository = repositoryFromEnv(env);
+  const repository = repositoryForSha;
   const runs = await githubPages(
     env,
     `/repos/${repository.fullName}/commits/${sha}/check-runs?per_page=100&filter=all`,
@@ -45,7 +62,7 @@ export async function runVerifyBuild(env = process.env, { fetchImpl = globalThis
   if (failures.length) throw new Error(`Other latest checks failed for ${sha}: ${failures.join(", ")}.`);
 
   appendStepSummary(env, "Build verification", [
-    `"${requiredCheck}" succeeded on ${sha}.`,
+    `"${requiredCheck}" succeeded on ${sha}${String(env.PR_NUMBER || "").trim() ? ` (PR #${String(env.PR_NUMBER).trim()})` : ""}.`,
     `${latest.size} latest check run(s) inspected; no failed checks.`,
   ]);
   return { sha, requiredCheck, checkCount: latest.size };

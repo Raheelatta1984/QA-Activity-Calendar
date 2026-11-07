@@ -1,5 +1,8 @@
 import { getViewer, canEdit } from "@/lib/access";
 import { listEnhancements, vaultFiles, vaultInfo, readEnhancementMarkdown, enhancementFileName } from "@/lib/enhancements";
+import { matchHandoverDoc, scanHandoverDocs, type HandoverDoc } from "@/lib/enhancement-docs";
+import { HANDOVER_STATUSES, STATUS_HINTS, pipelineStages } from "@/lib/enhancement-status";
+import { HandoverDocsPanel, type DocRow } from "@/components/HandoverDocsPanel";
 import { formatDate } from "@/lib/dates";
 import { Section } from "@/components/Section";
 import { PageHeader, PageGuidance } from "@/components/PageHeader";
@@ -11,7 +14,7 @@ import { deleteEnhancementAction, regenerateMarkdownAction } from "@/app/actions
 
 export const dynamic = "force-dynamic";
 
-const FLOW = ["Submitted", "Reviewing", "Accepted", "Building", "Built", "Archived"] as const;
+const FLOW = pipelineStages();
 
 /** Fields the author accepted from the assistant, stored as JSON on the record. */
 function parseAiFields(value: string | null): string[] {
@@ -42,6 +45,15 @@ export default async function EnhancementsPage() {
   const vault = vaultInfo();
   const active = items.filter((i) => !["Archived", "Rejected"].includes(i.status));
   const archived = items.filter((i) => ["Archived", "Rejected"].includes(i.status));
+  const handovers = scanHandoverDocs();
+  // The same matcher the reconciliation uses, so the panel and the sync agree
+  // about which request a document belongs to (and flag an ambiguous ref).
+  const linkDoc = (doc: HandoverDoc): DocRow => {
+    const linked = matchHandoverDoc(doc, items);
+    return { ...doc, linkedRef: linked?.ref ?? null, linkedStatus: linked?.status ?? null };
+  };
+  const handoverActive = handovers.active.map(linkDoc);
+  const handoverArchived = handovers.archived.map(linkDoc);
 
   return (
     <main className="page">
@@ -51,8 +63,10 @@ export default async function EnhancementsPage() {
         description="Capture improvement requests inside the app, review them with every change set, and archive the markdown once built and tested so it is never reviewed twice."
         meta={
           <>
-            {active.length} active · {archived.length} archived · {files.length} markdown file
-            {files.length === 1 ? "" : "s"} in <code className="mono">enhancements/</code>
+            {active.length} active · {archived.length} archived · {files.length} vault file
+            {files.length === 1 ? "" : "s"} · {handoverActive.length + handoverArchived.length} handover document
+            {handoverActive.length + handoverArchived.length === 1 ? "" : "s"} in{" "}
+            <code className="mono">lib/future-enhancements/</code>
           </>
         }
       />
@@ -64,7 +78,9 @@ export default async function EnhancementsPage() {
             <div className="kpi" key={stage} style={{ ["--kpi-accent" as string]: index === 0 ? "var(--brand)" : "var(--purple)" }}>
               <div className="kpi-label">{stage}</div>
               <div className="kpi-value">{count}</div>
-              <div className="kpi-foot">{index === 0 ? "awaiting triage" : "in the pipeline"}</div>
+              <div className="kpi-foot">
+                {index === 0 ? "awaiting triage" : stage === "Built" ? "awaiting archive" : "in the pipeline"}
+              </div>
             </div>
           );
         })}
@@ -116,7 +132,9 @@ export default async function EnhancementsPage() {
                   <div className="row" style={{ gap: 8 }}>
                     <span className="mono" style={{ fontSize: "0.74rem", color: "var(--muted)" }}>{item.ref}</span>
                     <strong style={{ fontSize: "0.94rem" }}>{item.title}</strong>
-                    <span className={`badge ${STATUS_BADGE[item.status] ?? "badge-slate"}`}>{item.status}</span>
+                    <span className={`badge ${STATUS_BADGE[item.status] ?? "badge-slate"}`} title={STATUS_HINTS[item.status]}>
+                      {item.status}
+                    </span>
                   </div>
                   <p className="dim" style={{ fontSize: "0.83rem", marginTop: 4 }}>
                     {item.brief}
@@ -187,7 +205,15 @@ export default async function EnhancementsPage() {
                     <strong>Expected outcome:</strong> {item.expected_outcome}
                   </p>
                 ) : null}
-                {item.status === "Building" ? <div className="card-sub mono" style={{ marginTop: 8 }}>GitHub handover: lib/future-enhancements/{enhancementFileName(item.ref, item.title).replace(/\.md$/, "")}-{item.id.replace(/[^a-zA-Z0-9-]/g, "-").toLowerCase()}.md</div> : null}
+                {HANDOVER_STATUSES.includes(item.status as never) ? (
+                  <div className="card-sub mono" style={{ marginTop: 8 }}>
+                    GitHub handover: lib/future-enhancements/{enhancementFileName(item.ref, item.title).replace(/\.md$/, "")}-
+                    {item.id.replace(/[^a-zA-Z0-9-]/g, "-").toLowerCase()}.md
+                  </div>
+                ) : null}
+                {STATUS_HINTS[item.status] ? (
+                  <p className="dim" style={{ fontSize: "0.8rem", marginTop: 8 }}>{STATUS_HINTS[item.status]}</p>
+                ) : null}
                 {item.github_path ? (
                   <div className="card-sub mono" style={{ marginTop: 8 }}>{item.github_path}</div>
                 ) : null}
@@ -234,6 +260,17 @@ export default async function EnhancementsPage() {
             </details>
           ) : null}
         </div>
+      </Section>
+
+      <Section
+        id="sec.enhancements.handovers"
+        tabId="tab.enhancements"
+        title="Handover documents"
+        description="The Markdown files in lib/future-enhancements/ and the status each one carries. Building publishes a handover, Built means the implementation merged, and Archived is written once the completion workflow moves the file into archived/."
+        path="/enhancements"
+        canEdit={editable}
+      >
+        <HandoverDocsPanel active={handoverActive} archived={handoverArchived} canEdit={editable} />
       </Section>
     </main>
   );

@@ -35,6 +35,7 @@ jobs:
         with:
           node-version: 22
       - name: Verify title, head SHA and required check, then squash-merge
+        id: merge
         env:
           GITHUB_TOKEN: ${{ github.token }}
           AUTO_MERGE_ENABLED: ${{ vars.AUTO_MERGE_ENABLED }}

@@ -26,8 +26,8 @@ const themeScript = `
 })();
 `;
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  ensureBootstrapped();
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  await ensureBootstrapped();
   return (
     <html lang="en-AU" data-theme="dark" suppressHydrationWarning>
       <head>

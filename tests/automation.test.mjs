@@ -410,6 +410,41 @@ test("merged PR resolution writes authoritative archive and issue files", async 
   assert.match(fs.readFileSync(path.join(dir, "output.txt"), "utf8"), /relevant=true/);
 });
 
+test("completion resolution fetches the merged PR when the event carries none", async (t) => {
+  const dir = tempDir(t);
+  const archiveFile = path.join(dir, "archive-names.txt");
+  const issuesFile = path.join(dir, "issue-numbers.txt");
+  const mergedPr = {
+    number: 101,
+    body: "Closes #7",
+    merged: true,
+    base: { ref: "main" },
+    head: { ref: "arena/session", sha: HEAD_SHA, repo: { full_name: REPO } },
+    labels: [],
+  };
+  const mock = router([
+    { ...exact("GET", `/repos/${REPO}/pulls/101`), handler: () => json(mergedPr) },
+    {
+      ...exact("GET", `/repos/${REPO}/issues/7`),
+      handler: () => json({ number: 7, body: utils.handoverMarker(NAME), labels: [{ name: utils.HANDOVER_LABEL }] }),
+    },
+  ]);
+  const result = await runResolvePullRequest(
+    baseEnv(dir, { repository: { default_branch: "main", full_name: REPO } }, {
+      GITHUB_EVENT_NAME: "workflow_run",
+      PR_NUMBER: "101",
+      ARCHIVE_NAMES_FILE: archiveFile,
+      ISSUE_NUMBERS_FILE: issuesFile,
+    }),
+    { fetchImpl: mock.fetchImpl },
+  );
+  assert.equal(result.relevant, true);
+  assert.deepEqual(result.names, [NAME]);
+  assert.deepEqual(result.issues.map(Number), [7]);
+  assert.equal(fs.readFileSync(archiveFile, "utf8").trim(), NAME);
+  assert.equal(fs.readFileSync(issuesFile, "utf8").trim(), "7");
+});
+
 test("build verification requires a successful latest Build and test check", async (t) => {
   const dir = tempDir(t);
   const sha = "d".repeat(40);

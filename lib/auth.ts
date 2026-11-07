@@ -104,7 +104,7 @@ export async function clearLoginWelcomeCookie() {
 }
 
 export async function getSession() {
-  ensureBootstrapped();
+  await ensureBootstrapped();
   const store = await cookies();
   const raw = store.get(SESSION_COOKIE)?.value;
   if (!raw) return null;

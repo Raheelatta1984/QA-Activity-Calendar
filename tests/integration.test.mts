@@ -329,6 +329,67 @@ test("recording rows are excluded from the testing-only FTE calendar", () => {
   if (!recording) run(`DELETE FROM activities WHERE id = 'act_test_recording'`);
 });
 
+test("an archived handover document moves the matching request to Archived", async () => {
+  const { syncEnhancementDocs } = await import("../lib/enhancement-docs");
+  const before = get<any>(`SELECT * FROM enhancements WHERE id = 'enh_seed_1'`);
+  assert.ok(before, "seeded enhancement exists");
+  const name = "ENH-0001-add-department-level-capacity-forecasting-enh-seed-1.md";
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "qa-doc-sync-"));
+  const archivedDir = path.join(root, "lib/future-enhancements/archived");
+  fs.mkdirSync(archivedDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(archivedDir, name),
+    `---\nref: "ENH-0001"\ntitle: "Add department-level capacity forecasting"\nstatus: "Archived"\n---\n\n# Built\n`
+  );
+  try {
+    const result = await syncEnhancementDocs({ root, apply: true });
+    const change = result.changes.find((entry) => entry.id === "enh_seed_1");
+    assert.ok(change, "the archived document is reported");
+    assert.equal(change.from, "Reviewing");
+    assert.equal(change.to, "Archived");
+    const after = get<any>(`SELECT status, archived_at, github_path FROM enhancements WHERE id = 'enh_seed_1'`);
+    assert.equal(after.status, "Archived");
+    assert.ok(after.archived_at);
+    assert.equal(after.github_path, `lib/future-enhancements/archived/${name}`);
+
+    // Running again is idempotent: nothing is rewritten.
+    const again = await syncEnhancementDocs({ root, apply: true });
+    assert.equal(again.changes.some((entry) => entry.id === "enh_seed_1"), false);
+  } finally {
+    run(
+      `UPDATE enhancements SET status = ?, archived_at = ?, github_path = ? WHERE id = 'enh_seed_1'`,
+      before.status,
+      before.archived_at,
+      before.github_path
+    );
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a Built document is reported without archiving the request", async () => {
+  const { syncEnhancementDocs } = await import("../lib/enhancement-docs");
+  const before = get<any>(`SELECT * FROM enhancements WHERE id = 'enh_seed_2'`);
+  const name = "ENH-0002-two-way-teams-notification-go-no-go-decisions-enh-seed-2.md";
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "qa-doc-built-"));
+  const activeDir = path.join(root, "lib/future-enhancements");
+  fs.mkdirSync(activeDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(activeDir, name),
+    `---\nref: "ENH-0002"\ntitle: "Two-way Teams notification"\nstatus: "Built"\n---\n\n# Built\n`
+  );
+  try {
+    const result = await syncEnhancementDocs({ root, apply: true });
+    const change = result.changes.find((entry) => entry.id === "enh_seed_2");
+    assert.ok(change, "the Built document is reported");
+    assert.equal(change.to, "Built");
+    const after = get<any>(`SELECT status FROM enhancements WHERE id = 'enh_seed_2'`);
+    assert.equal(after.status, "Built");
+  } finally {
+    run(`UPDATE enhancements SET status = ?, archived_at = ?, github_path = ? WHERE id = 'enh_seed_2'`, before.status, before.archived_at, before.github_path);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("ephemeral serverless enhancement vault lists seeded and newly submitted proposals", async () => {
   const { enhancementFileName, removeVaultMarkdown, renderEnhancementMarkdown, vaultFiles, writeVaultMarkdown } =
     await import("../lib/enhancements");
