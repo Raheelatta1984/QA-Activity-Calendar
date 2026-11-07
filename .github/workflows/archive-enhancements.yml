@@ -64,28 +64,48 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          UPSTREAM_WORKFLOW: ${{ github.event.workflow_run.name }}
         run: |
           set -euo pipefail
           pr="${INPUT_PR_NUMBER:-}"
+          note=""
+
           if ! printf '%s' "$pr" | grep -qE '^[0-9]+$'; then
-            if [ -n "${HEAD_SHA:-}" ]; then
-              # For a merge workflow run the head SHA is the verified PR head, so
-              # the associated pull requests identify what was just merged.
-              pr=$(gh api "/repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/pulls" \
-                --jq '[.[] | select(.merged_at != null and .base.ref == "main")] | .[0].number // ""' \
-                2>/dev/null || true)
+            if [ "${EVENT_NAME}" = "workflow_run" ] && [ "${UPSTREAM_WORKFLOW}" = "Merge passing enhancement PR" ]; then
+              # This run fires *after* the merge workflow has already squash-merged
+              # the PR, so `workflow_run.head_sha` is the base branch at that
+              # moment — not the pull request head — and its commit associations do
+              # not name the PR. The merge commit is the current base head, and
+              # GitHub associates that commit with the PR it came from.
+              base_sha=$(git rev-parse HEAD)
+              pr=$(gh api "/repos/${GITHUB_REPOSITORY}/commits/${base_sha}/pulls" \
+                --jq '[.[] | select(.merged_at != null)] | .[0].number // ""' 2>/dev/null || true)
+              note="via merge commit ${base_sha}"
             fi
           fi
+
+          if ! printf '%s' "$pr" | grep -qE '^[0-9]+$' && [ -n "${HEAD_SHA:-}" ] && [ "${HEAD_BRANCH:-}" != "main" ]; then
+            # Fallback: a verified PR head (the pre-merge behaviour).
+            pr=$(gh api "/repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/pulls" \
+              --jq '[.[] | select(.merged_at != null and .base.ref == "main")] | .[0].number // ""' \
+              2>/dev/null || true)
+            note="via head ${HEAD_SHA}"
+          fi
+
           if ! printf '%s' "$pr" | grep -qE '^[0-9]+$'; then
-            echo "No merged pull request could be resolved for this event; nothing to complete."
+            # Never fail silently: a green run that completed nothing is exactly
+            # how a merged handover was left unarchived before.
+            echo "::warning title=Nothing to complete::No merged pull request could be resolved for ${EVENT_NAME} (head ${HEAD_SHA:-none}). Re-run with the pr_number input."
             echo "relevant=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if [ -z "$(gh api "/repos/${GITHUB_REPOSITORY}/pulls/${pr}" --jq '.merged_at // ""')" ]; then
-            echo "Pull request #${pr} is not merged; nothing to complete."
+            echo "::warning title=Not merged::Pull request #${pr} is not merged; nothing to complete."
             echo "relevant=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "Resolved pull request #${pr} ${note}."
           echo "number=$pr" >> "$GITHUB_OUTPUT"
           echo "relevant=true" >> "$GITHUB_OUTPUT"
       - name: Resolve the authoritative handovers for this merged PR

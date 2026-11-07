@@ -1,7 +1,7 @@
 ---
 ref: "ENH-0004"
 title: "Just wanted to add welcome note message when user login and disappear within 2 seconds"
-status: "Building"
+status: "Archived"
 submitted_by: "Amara Okafor"
 submitted_on: "2026-11-08"
 app_sections: "sec.calendar.filters"

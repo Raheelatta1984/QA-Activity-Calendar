@@ -208,13 +208,24 @@ any request whose status no longer matches its file.
 
 ### Repairing a handover that was merged but not completed
 
-Until this change, a PR merged by `Merge passing enhancement PR` was never
-completed (no `pull_request: closed` event). To finish one retrospectively, run
-**Complete enhancement handovers → Run workflow** with the merged pull request
-number:
+A PR merged by `Merge passing enhancement PR` emits no `pull_request: closed`
+event, so completion also runs on that workflow finishing. Two ordering details
+matter and both are covered by tests:
+
+1. **The PR is resolved from the merge commit, not `workflow_run.head_sha`.**
+   Completion fires *after* the merge, so `head_sha` is the base-branch tip at
+   that moment and its commit associations do not name the pull request. The job
+   reads the current `main` HEAD and asks GitHub which merged PR produced it.
+2. **A no-op is never silent.** If no merged PR can be resolved the step emits a
+   `::warning title=Nothing to complete::` annotation instead of finishing green,
+   because a green run that did nothing is how merged handovers were previously
+   left unarchived.
+
+To finish a merged PR retrospectively (for example one merged before these fixes
+reached `main`):
 
 ```text
-Actions → Complete enhancement handovers → Run workflow → pr_number: 9
+Actions → Complete enhancement handovers → Run workflow → pr_number: <merged PR>
 ```
 
 The workflow fetches that pull request, verifies its `Build and test` check on
