@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -80,7 +81,7 @@ function workflowRunEvent({ headRepository = REPO } = {}) {
   };
 }
 
-function pullRequestEvent({ headRef = "arena/session" } = {}) {
+function pullRequestEvent({ headRef = "arena/session", headSha = HEAD_SHA } = {}) {
   return {
     pull_request: {
       number: 101,
@@ -89,7 +90,7 @@ function pullRequestEvent({ headRef = "arena/session" } = {}) {
       merged: true,
       labels: [],
       base: { ref: "main" },
-      head: { ref: headRef, sha: HEAD_SHA, repo: { full_name: REPO } },
+      head: { ref: headRef, sha: headSha, repo: { full_name: REPO } },
     },
     repository: { default_branch: "main", full_name: REPO },
   };
@@ -227,6 +228,29 @@ test("archive commit uses a labelled CI-gated PR when a direct push is blocked",
   assert.equal(direct.status, "pushed");
 });
 
+/** Real git checkout so the sweep and head-deletion paths can be exercised. */
+function cleanupCheckout(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qa-followup-head-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const run = (args) =>
+    execFileSync("git", args, {
+      cwd: dir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "Test",
+        GIT_AUTHOR_EMAIL: "test@example.com",
+        GIT_COMMITTER_NAME: "Test",
+        GIT_COMMITTER_EMAIL: "test@example.com",
+      },
+    });
+  run(["init", "-q"]);
+  run(["checkout", "-q", "-b", "main"]);
+  run(["commit", "-q", "--allow-empty", "-m", "merged head"]);
+  return { dir, sha: run(["rev-parse", "HEAD"]).trim() };
+}
+
 test("optional full cleanup deletes only fully merged unprotected branches", async (t) => {
   const dir = tempDir(t);
   const deleted = [];
@@ -236,6 +260,7 @@ test("optional full cleanup deletes only fully merged unprotected branches", asy
       handler: () => json([
         { name: "main", protected: false },
         { name: "arena/session", protected: false },
+        { name: "arena/11863894-qa-activity-calendar", protected: false },
         { name: "feature/merged", protected: false },
         { name: "feature/unmerged", protected: false },
         { name: "protected/keep", protected: true },
@@ -261,16 +286,19 @@ test("optional full cleanup deletes only fully merged unprotected branches", asy
       },
     },
   ]);
+  const head = cleanupCheckout(t);
   const result = await runDeleteMergedBranch(
-    baseEnv(dir, pullRequestEvent(), {
+    baseEnv(dir, pullRequestEvent({ headSha: head.sha }), {
       GITHUB_EVENT_NAME: "pull_request",
       CLEANUP_ALL_MERGED_BRANCHES: "true",
+      HEAD_BRANCH_DIR: head.dir,
     }),
     { fetchImpl: mock.fetchImpl },
   );
   assert.equal(result.status, "skipped");
-  assert.match(result.reason, /preserved/);
+  assert.match(result.reason, /active Arena session branch/);
   assert.equal(result.cleanup.status, "completed");
+  // The sweep keeps both the live session branch and the bare arena/ branch.
   assert.deepEqual(result.cleanup.deleted, ["feature/merged"]);
   assert.equal(deleted.length, 1);
 });
@@ -304,6 +332,19 @@ test("new workflows, docs and env example wire the limitation fixes", () => {
     archive.jobs.complete.steps.some((step) => step.env?.CLEANUP_ALL_MERGED_BRANCHES),
     true,
   );
+  // Cleanup must check out the merged head, otherwise it cannot verify whether
+  // the branch has newer commits and would have to skip the deletion.
+  const cleanupHead = archive.jobs.complete.steps.find(
+    (step) => step.id === "cleanup-head",
+  );
+  assert.ok(cleanupHead, "archive workflow needs a cleanup-head checkout step");
+  assert.equal(cleanupHead.with?.path, ".tmp/cleanup-head");
+  assert.equal(cleanupHead.with?.ref, "${{ github.event.pull_request.head.sha }}");
+  const cleanupStep = archive.jobs.complete.steps.find(
+    (step) => step.run?.includes("delete-merged-branch.mjs"),
+  );
+  assert.match(cleanupStep.env.HEAD_BRANCH_DIR, /cleanup-head/);
+  assert.equal(cleanupStep.env.HEAD_BRANCH, "${{ github.event.pull_request.head.ref }}");
   const docs = fs.readFileSync(path.join(repoRoot, "docs/ENHANCEMENT-AUTOMATION.md"), "utf8");
   assert.match(docs, /user-initiated/);
   assert.match(docs, /arena\.ai\/agent/);

@@ -1,4 +1,6 @@
+import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { githubPages, githubRequest, readGithubEvent, repositoryFromEnv } from "./lib/github-api.mjs";
 import {
@@ -9,7 +11,33 @@ import {
   isHexSha,
   isSafeBranchName,
   parseBranchPrefixes,
+  PROTECTED_SESSION_PREFIXES,
+  resolveWorkingDirectory,
 } from "./lib/enhancement-utils.mjs";
+
+function git(directory, args) {
+  try {
+    return execFileSync("git", args, { cwd: directory, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return "";
+  }
+}
+
+/** The commit the merged head branch points at in the local checkout. */
+async function resolveWorkingTreeSha(directory) {
+  return git(directory, ["rev-parse", "HEAD"]);
+}
+
+/** Soft availability check: a missing commit or git failure preserves the branch. */
+async function branchHasNewerCommits(directory, branch, mergedSha) {
+  if (!isHexSha(mergedSha)) return true;
+  const tip = git(directory, ["rev-parse", `refs/remotes/origin/${branch}`])
+    || git(directory, ["rev-parse", branch]);
+  if (!isHexSha(tip) || tip === mergedSha) return false;
+  const unmerged = git(directory, ["rev-list", "--count", `${mergedSha}..${tip}`]);
+  if (unmerged === "") return true;
+  return Number(unmerged) > 0;
+}
 
 async function branchHasOpenPr(env, repository, branch, fetchImpl) {
   const head = encodeURIComponent(`${repository.owner}:${branch}`);
@@ -33,8 +61,29 @@ async function deleteHeadBranch(env, repository, event, fetchImpl) {
   const defaultBranch = event.repository?.default_branch || "main";
   if (branch === defaultBranch || branch === "main") return skip("default/main branch is never deleted");
   if (!isSafeBranchName(branch)) return skip("unsafe branch name");
+
+  // Checked after the safe-name and default-branch guards, so a malformed
+  // branch name is still reported as unsafe.
+  const workingDirectory = resolveWorkingDirectory(env);
+  if (workingDirectory !== path.resolve(workingDirectory) || !fs.existsSync(workingDirectory)) {
+    return skip("cannot resolve the merged head working directory");
+  }
+  const headSha = await resolveWorkingTreeSha(workingDirectory);
+  if (!isHexSha(headSha)) {
+    return skip("merged head working tree is not a readable git checkout");
+  }
+  if (headSha !== String(pr.head?.sha || "")) {
+    return skip("local HEAD is not the merged PR head; refusing to judge branch activity");
+  }
+
   if (!hasAutomationPrefix(branch, parseBranchPrefixes(env))) {
     return skip("branch is outside BRANCH_CLEANUP_PREFIXES; unrelated branches are preserved");
+  }
+  const sessionPrefix = PROTECTED_SESSION_PREFIXES.find((prefix) => branch.startsWith(prefix));
+  if (sessionPrefix) {
+    return skip(
+      `active Arena session branch (${sessionPrefix}); never deleted automatically by any prefix setting`,
+    );
   }
   const sha = String(pr.head?.sha || "");
   if (!isHexSha(sha)) return skip("missing valid PR head SHA");
@@ -56,6 +105,9 @@ async function deleteHeadBranch(env, repository, event, fetchImpl) {
   }
   if (await branchHasOpenPr(env, repository, branch, fetchImpl)) {
     return skip("branch still has an open pull request");
+  }
+  if (await branchHasNewerCommits(workingDirectory, branch, sha)) {
+    return skip("branch has commits that are not in the merged PR head; preserving newer commits");
   }
   const deleted = await githubRequest(env, `/repos/${repository.fullName}/git/refs/heads/${encoded}`, {
     method: "DELETE",
@@ -79,6 +131,7 @@ async function cleanupAllMergedBranches(env, repository, event, headBranch, fetc
     const branch = String(entry?.name || "");
     if (!branch || branch === defaultBranch || branch === "main" || branch === headBranch) continue;
     if (entry.protected || !isSafeBranchName(branch)) continue;
+    if (PROTECTED_SESSION_PREFIXES.some((prefix) => branch.startsWith(prefix))) continue;
     const encoded = encodeBranchPath(branch);
     const compare = await githubRequest(
       env,

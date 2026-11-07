@@ -24,8 +24,9 @@ The CI-gated merge workflow performs the merge after `Build and test` succeeds
 on the exact PR head SHA; the completion workflow then archives the handover. It
 pushes the archive commit directly when allowed, otherwise opens a generated
 CI-gated archive PR. By default it deletes only the merged PR head branch when
-that branch is in the configured automation-prefix allowlist; other branches,
-protected branches, active Arena session branches and branches with newer
-commits are preserved. Add `arena/` to `BRANCH_CLEANUP_PREFIXES` after a session
-has finished, or set `CLEANUP_ALL_MERGED_BRANCHES=true`, for broader cleanup.
+that branch is in the configured automation-prefix allowlist, which includes
+`arena/`; other branches, protected branches, active Arena session branches
+(`arena/<session-id>`), branches whose local HEAD is not the merged PR head and
+branches with newer commits are preserved. Never force a session branch to be
+deleted by adding prefixes: `arena/<session-id>` is excluded by design.
 Inspect workflow results before claiming a handover is complete.

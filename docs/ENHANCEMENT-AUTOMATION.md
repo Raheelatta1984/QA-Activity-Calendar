@@ -112,14 +112,29 @@ normal path. No secret values were written to Vercel, GitHub or chat.
 | --- | --- | --- | --- |
 | `AUTO_MERGE_ENABLED` | variable | `true` | Set `false` to keep PRs unmerged until a human merges them |
 | `REQUIRED_CHECK_NAME` | variable | `Build and test` | Exact successful check required before merge/archive |
-| `BRANCH_CLEANUP_PREFIXES` | variable | `copilot/,enh/,enhancement/,automation/` | Explicit allowlist for the default head-branch deletion |
+| `BRANCH_CLEANUP_PREFIXES` | variable | `copilot/,enh/,enhancement/,automation/,arena/` | Explicit allowlist for the default head-branch deletion |
 | `CLEANUP_ALL_MERGED_BRANCHES` | variable | `false` | Set `true` to delete every fully merged, unprotected, non-`main` branch with no open PR |
 | `AUTOMATION_TOKEN` | secret | unset | Optional PAT for protected `main`/archive-PR creation; falls back to `github.token` |
 
 The `copilot/` prefix is retained only for legacy branch names. No Copilot
-agent is used. To delete a merged Arena session branch after its session has
-finished, add `arena/` to `BRANCH_CLEANUP_PREFIXES` or enable
-`CLEANUP_ALL_MERGED_BRANCHES`.
+agent is used. `arena/` is in the default allowlist, so the merged PR head
+branch of an Arena session is deleted automatically once the session finishes.
+
+Setting `BRANCH_CLEANUP_PREFIXES` **replaces** the defaults instead of extending
+them, so list every prefix you want to keep. A prefix without a trailing slash
+is normalised (`arena` and `arena//` both become `arena/`), which keeps `arena/`
+from matching an unrelated `arena-foo` branch.
+
+Deletion still has to clear every guard, so the operational effort of cleaning
+up by hand goes away without handing automation a blank cheque:
+
+- `arena/<session-id>` branches are **never** deleted automatically. They are
+  active session branches, and an `arena/` prefix does not override this. The
+  same applies to `CLEANUP_ALL_MERGED_BRANCHES`.
+- The merged head branch is deleted only when its tip is still exactly the
+  merged PR head SHA and it has no newer commits, no open PR and no protection.
+- If the completion workflow cannot check out the merged head (for example the
+  branch was deleted as the PR merged), cleanup skips instead of guessing.
 
 If you rely on `github.token` to create the fallback archive PR, enable
 **Allow GitHub Actions to create and approve pull requests** in repository

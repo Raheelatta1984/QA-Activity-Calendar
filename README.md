@@ -146,9 +146,13 @@ squash-merged after that exact head SHA passes, then completed by archiving the
 handover into `lib/future-enhancements/archived/`, closing the issue and
 cleaning up branches within the configured scope. A protected `main` can be
 handled through a generated CI-gated archive PR instead of a direct push.
-Unrelated branches are preserved by default; `CLEANUP_ALL_MERGED_BRANCHES` is
-an explicit opt-in for broader cleanup. Vercel runtime variables are documented
-in [automation setup](docs/ENHANCEMENT-AUTOMATION.md); GitHub Actions
+Unrelated branches are preserved, and active Arena session branches
+(`arena/<session-id>`) are never deleted automatically. The default allowlist
+covers `copilot/`, `enh/`, `enhancement/`, `automation/` and `arena/` so merged
+session head branches are cleaned up without manual work;
+`CLEANUP_ALL_MERGED_BRANCHES` is an explicit opt-in for broader cleanup.
+Vercel runtime variables are documented in
+[automation setup](docs/ENHANCEMENT-AUTOMATION.md); GitHub Actions
 variables/secrets are configured separately in GitHub. The Git-side workflow
 does not sync the in-app SQLite status.
 

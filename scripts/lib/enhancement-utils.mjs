@@ -8,7 +8,19 @@ export const LEGACY_ARCHIVE_DIR = "lib/future-enhancements/archive";
 export const HANDOVER_LABEL = "arena-handover";
 export const ARCHIVE_PR_LABEL = "enhancement-archive";
 export const REQUIRED_CHECK_NAME = "Build and test";
-export const DEFAULT_BRANCH_PREFIXES = ["copilot/", "enh/", "enhancement/", "automation/"];
+export const DEFAULT_BRANCH_PREFIXES = [
+  "copilot/",
+  "enh/",
+  "enhancement/",
+  "automation/",
+  "arena/",
+];
+/**
+ * Arena session branches are never deleted automatically. A session must exist
+ * long enough to open the follow-up PRs it is asked to, so an `arena/` prefix in
+ * BRANCH_CLEANUP_PREFIXES cannot opt them into cleanup.
+ */
+export const PROTECTED_SESSION_PREFIXES = ["arena/"];
 export const DEFAULT_TMP_DIR = ".tmp";
 export const ARCHIVE_NAMES_FILE = ".tmp/enhancement-archive-names.txt";
 export const ARCHIVED_NAMES_FILE = ".tmp/enhancement-archived-names.txt";
@@ -132,12 +144,28 @@ export function parseBranchPrefixes(env = process.env) {
   if (prefixes.includes("*") || prefixes.some((prefix) => prefix.includes("*"))) {
     throw new Error("BRANCH_CLEANUP_PREFIXES must list explicit prefixes, not a wildcard.");
   }
-  return [...new Set(prefixes)];
+  // Tolerate `arena` and `arena//`; a prefix must keep its single trailing slash
+  // so `arena/` cannot match an unrelated `arena-foo` branch.
+  const normalized = prefixes.map((prefix) =>
+    prefix.endsWith("/") ? prefix.replace(/\/+$/, "/") : `${prefix}/`,
+  );
+  return [...new Set(normalized)];
 }
 
 export function hasAutomationPrefix(ref, prefixes = DEFAULT_BRANCH_PREFIXES) {
   const value = String(ref || "");
   return prefixes.some((prefix) => prefix && value.startsWith(prefix));
+}
+
+/**
+ * Working directory for a merged PR head branch: HEAD when the completion
+ * workflow checks out that head, otherwise the repository root (where `main`
+ * is checked out).
+ */
+export function resolveWorkingDirectory(env = process.env) {
+  const headDirectory = String(env.HEAD_BRANCH_DIR || "").trim();
+  if (headDirectory) return path.resolve(headDirectory);
+  return path.resolve(String(env.GITHUB_WORKSPACE || ".").trim() || ".");
 }
 
 export function encodeBranchPath(ref) {

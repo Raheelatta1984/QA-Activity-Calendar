@@ -39,11 +39,12 @@ unbacked marker in an unrelated PR does not archive a handover.
 - A handover is archived only when it still has `status: "Building"` and the
   merged PR's required build check succeeded.
 - Branch cleanup is an allowlist (`copilot/`, `enh/`, `enhancement/`,
-  `automation/` by default), not a sweep of every non-`main` branch. Protected,
-  unrelated, active or newer branches are preserved. Arena session branches
-  (`arena/*`) are deliberately excluded by default; add `arena/` to
-  `BRANCH_CLEANUP_PREFIXES` after the session has finished, or set
-  `CLEANUP_ALL_MERGED_BRANCHES=true` for broader cleanup.
+  `automation/`, `arena/` by default), not a sweep of every non-`main` branch.
+  Protected, unrelated, active or newer branches are preserved. The default
+  includes `arena/`, so a merged session head branch is deleted once the session
+  finishes and the branch has no newer commits. Active session branches
+  (`arena/<session-id>`) are never deleted automatically, and
+  `CLEANUP_ALL_MERGED_BRANCHES=true` is only for broader cleanup.
 - If branch protection prevents the archive commit from being pushed to `main`,
   a labelled `enhancement-archive` PR is opened and merged after its own
   `Build and test` check succeeds.
