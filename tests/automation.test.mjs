@@ -100,7 +100,7 @@ function pullRequestEvent({ body = `Closes #7\n\nImplementation`, number = 101, 
   };
 }
 
-function intakeRoutes({ issueNumber = 42, copilot = false, existing = null } = {}) {
+function intakeRoutes({ issueNumber = 42, existing = null } = {}) {
   const createdBodies = [];
   const patchedBodies = [];
   const routes = [
@@ -152,15 +152,6 @@ function intakeRoutes({ issueNumber = 42, copilot = false, existing = null } = {
       },
     },
   ];
-  if (copilot) {
-    routes.unshift({
-      ...exact("POST", `/agents/repos/${REPO}/tasks`),
-      handler: ({ init }) => {
-        assert.equal(init.headers.Authorization, "Bearer copilot-token");
-        return json({ id: "task-1", pull_request: { html_url: `https://github.com/${REPO}/pull/99` } }, 201);
-      },
-    });
-  }
   return { routes, createdBodies, patchedBodies };
 }
 
@@ -191,7 +182,9 @@ test("shared conventions reject unsafe names and parse authoritative references"
 test("issue contract includes Arena limits, exact PR lines and no raw handover content", () => {
   const body = buildIssueBody({ name: NAME, sha: AFTER, issueNumber: 7, title: "Example work", issueUrl: `https://github.com/${REPO}/issues/7` });
   assert.match(body, /<!-- enhancement-handover:/);
-  assert.match(body, /user-initiated and cannot be started by this workflow/);
+  assert.match(body, /user-initiated/);
+  assert.match(body, /arena\.ai\/agent/);
+  assert.match(body, /free GitHub plan/);
   assert.match(body, /Closes #7/);
   assert.match(body, new RegExp(`Enhancement-Archive: ${NAME.replace(/[.]/g, "\\.")}`));
   assert.match(body, /npm run build/);
@@ -205,7 +198,9 @@ test("intake creates one issue per newly added Building handover and backfills d
   const firstResult = await runIntake(baseEnv(dir, pushEvent()), { fetchImpl: firstRouter.fetchImpl });
   assert.equal(firstResult.length, 1);
   assert.equal(firstResult[0].status, "created");
-  assert.equal(firstResult[0].agentStatus, "arena-manual-handoff");
+  assert.equal(firstResult[0].agentStatus, "arena-handoff");
+  assert.equal(firstRouter.calls.some((call) => call.key.includes("/agents/")), false);
+  assert.match(first.patchedBodies[0].body, /arena\.ai\/agent/);
   assert.equal(first.createdBodies[0].labels.includes(utils.HANDOVER_LABEL), true);
   assert.match(first.createdBodies[0].body, /Closes #<issue-number>/);
   assert.match(first.patchedBodies[0].body, /Closes #42/);
@@ -223,22 +218,20 @@ test("intake creates one issue per newly added Building handover and backfills d
   assert.equal(second.createdBodies.length, 0);
 });
 
-test("intake can start an optional GitHub Copilot task with the user token", async (t) => {
+test("intake ignores legacy Copilot flags and never calls the paid agent API", async (t) => {
   const dir = tempDir(t);
-  const { routes } = intakeRoutes({ copilot: true });
+  const { routes } = intakeRoutes();
   const mock = router(routes);
   const result = await runIntake(
     baseEnv(dir, pushEvent(), {
       COPILOT_AGENT_ENABLED: "true",
-      COPILOT_AGENT_TOKEN: "copilot-token",
+      COPILOT_AGENT_TOKEN: "legacy-token",
     }),
     { fetchImpl: mock.fetchImpl },
   );
-  assert.equal(result[0].agentStatus, "copilot-task-started");
-  const taskCall = mock.calls.find((call) => call.key === `POST /agents/repos/${REPO}/tasks`);
-  assert.equal(taskCall.body.create_pull_request, true);
-  assert.match(taskCall.body.prompt, new RegExp(`Closes #42[\\s\\S]*Enhancement-Archive: ${NAME.replace(/[.]/g, "\\.")}`));
-  assert.ok(mock.calls.some((call) => call.key === `POST /repos/${REPO}/issues/42/comments`));
+  assert.equal(result[0].agentStatus, "arena-handoff");
+  assert.equal(mock.calls.some((call) => call.key.includes("/agents/")), false);
+  assert.equal(mock.calls.some((call) => call.key.includes("/issues/42/comments")), false);
 });
 
 test("workflow_dispatch all_active backfills approved handovers on main", async (t) => {
@@ -561,5 +554,7 @@ test("all workflow YAML parses and the CI gate is wired into completion", () => 
   const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
   assert.match(pkg.scripts.test, /automation\.test\.mjs/);
   assert.match(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8"), /archived\//);
-  assert.match(fs.readFileSync(path.join(repoRoot, "docs/ENHANCEMENT-AUTOMATION.md"), "utf8"), /user-initiated/);
+  const guide = fs.readFileSync(path.join(repoRoot, "docs/ENHANCEMENT-AUTOMATION.md"), "utf8");
+  assert.match(guide, /user-initiated/);
+  assert.match(guide, /arena\.ai\/agent/);
 });

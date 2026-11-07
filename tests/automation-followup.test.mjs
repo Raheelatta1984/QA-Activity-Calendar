@@ -306,9 +306,19 @@ test("new workflows, docs and env example wire the limitation fixes", () => {
   );
   const docs = fs.readFileSync(path.join(repoRoot, "docs/ENHANCEMENT-AUTOMATION.md"), "utf8");
   assert.match(docs, /user-initiated/);
+  assert.match(docs, /arena\.ai\/agent/);
+  assert.match(docs, /GitHub Models/);
+  assert.match(docs, /free GitHub plan/);
   assert.match(docs, /AUTO_MERGE_ENABLED/);
   assert.match(docs, /CLEANUP_ALL_MERGED_BRANCHES/);
   assert.match(docs, /Vercel/);
+  const intake = readWorkflow("enhancement-intake.yml");
+  const intakeStep = intake.jobs["create-development-requests"].steps.find(
+    (step) => step.run?.includes("enhancement-intake.mjs"),
+  );
+  assert.equal(intakeStep?.env?.COPILOT_AGENT_ENABLED, undefined);
+  assert.equal(intakeStep?.env?.COPILOT_AGENT_TOKEN, undefined);
+  assert.equal(intakeStep?.env?.GITHUB_TOKEN, "${{ github.token }}");
   const envExample = fs.readFileSync(path.join(repoRoot, ".env.example"), "utf8");
   for (const key of [
     "SESSION_SECRET",
@@ -318,8 +328,6 @@ test("new workflows, docs and env example wire the limitation fixes", () => {
     "GITHUB_REPO",
     "GITHUB_TOKEN",
     "GITHUB_ENHANCEMENTS_BRANCH",
-    "COPILOT_AGENT_ENABLED",
-    "COPILOT_AGENT_TOKEN",
     "AUTO_MERGE_ENABLED",
     "AUTOMATION_TOKEN",
     "REQUIRED_CHECK_NAME",
@@ -328,6 +336,8 @@ test("new workflows, docs and env example wire the limitation fixes", () => {
   ]) {
     assert.match(envExample, new RegExp(`\\b${key}\\b`), `${key} missing from .env.example`);
   }
+  assert.match(envExample, /arena\.ai\/agent/);
+  assert.doesNotMatch(envExample, /COPILOT_AGENT_/);
   const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
   assert.match(pkg.scripts.test, /automation-followup\.test\.mjs/);
 });

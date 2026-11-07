@@ -11,11 +11,11 @@ completed records and are never reconsidered as active requests.
    The workflow creates one idempotent `arena-handover` issue containing the
    exact filename, source SHA and implementation contract. Use
    `workflow_dispatch` → `all_active` to backfill existing handovers.
-2. Arena Agent Mode cannot be started by a repository webhook; open a new Arena
-   coding session from the issue URL with the GitHub connector enabled. One
-   Arena session supports one PR. Optionally, the workflow can start a GitHub
-   Copilot cloud-agent task instead when `COPILOT_AGENT_ENABLED=true` and
-   `COPILOT_AGENT_TOKEN` are configured.
+2. Arena Agent Mode cannot be started by a repository webhook; open
+   <https://arena.ai/agent>, switch to Agent Mode, enable the GitHub connector,
+   and paste the issue's ready-to-use prompt into a new session. One Arena
+   session supports one PR. No paid GitHub Copilot cloud agent, GitHub Models
+   inference, external LLM key or Vercel variable is needed.
 3. An implementation PR should reference the request with `Closes #<number>`.
    `Enhancement PR coordination` verifies the linked labelled issue and appends
    `Enhancement-Archive: <full filename>` to the PR body. After `Build and test`
@@ -41,9 +41,9 @@ unbacked marker in an unrelated PR does not archive a handover.
 - Branch cleanup is an allowlist (`copilot/`, `enh/`, `enhancement/`,
   `automation/` by default), not a sweep of every non-`main` branch. Protected,
   unrelated, active or newer branches are preserved. Arena session branches
-  (`arena/*`) are deliberately excluded by default. Set
-  `CLEANUP_ALL_MERGED_BRANCHES=true` only if you intentionally want all fully
-  merged, unprotected non-`main` branches without open PRs deleted.
+  (`arena/*`) are deliberately excluded by default; add `arena/` to
+  `BRANCH_CLEANUP_PREFIXES` after the session has finished, or set
+  `CLEANUP_ALL_MERGED_BRANCHES=true` for broader cleanup.
 - If branch protection prevents the archive commit from being pushed to `main`,
   a labelled `enhancement-archive` PR is opened and merged after its own
   `Build and test` check succeeds.

@@ -36,9 +36,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Create one development request per active handover
+      - name: Create one Arena handoff issue per active handover
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          COPILOT_AGENT_ENABLED: ${{ vars.COPILOT_AGENT_ENABLED }}
-          COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
         run: node scripts/enhancement-intake.mjs
