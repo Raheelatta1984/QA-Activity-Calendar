@@ -60,10 +60,22 @@ jobs:
           ARCHIVED_NAMES_FILE: .tmp/enhancement-archived-names.txt
           ISSUE_NUMBERS_FILE: .tmp/enhancement-issue-numbers.txt
         run: node scripts/finalize-enhancement-issues.mjs
+      - name: Check out the merged head branch to judge branch activity
+        if: success()
+        id: cleanup-head
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: .tmp/cleanup-head
+          fetch-depth: 0
+          persist-credentials: false
       - name: Delete merged branches within the configured cleanup scope
         if: success()
         env:
           GITHUB_TOKEN: ${{ secrets.AUTOMATION_TOKEN || github.token }}
           BRANCH_CLEANUP_PREFIXES: ${{ vars.BRANCH_CLEANUP_PREFIXES }}
           CLEANUP_ALL_MERGED_BRANCHES: ${{ vars.CLEANUP_ALL_MERGED_BRANCHES }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          HEAD_BRANCH_DIR: ${{ steps.cleanup-head.outcome == 'success' && '.tmp/cleanup-head' || '' }}
         run: node scripts/delete-merged-branch.mjs

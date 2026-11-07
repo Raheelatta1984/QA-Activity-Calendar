@@ -85,7 +85,7 @@ function pushEvent() {
   };
 }
 
-function pullRequestEvent({ body = `Closes #7\n\nImplementation`, number = 101, headRef = "copilot/example" } = {}) {
+function pullRequestEvent({ body = `Closes #7\n\nImplementation`, number = 101, headRef = "copilot/example", headSha = HEAD_SHA } = {}) {
   return {
     pull_request: {
       number,
@@ -94,7 +94,7 @@ function pullRequestEvent({ body = `Closes #7\n\nImplementation`, number = 101, 
       merged: true,
       labels: [],
       base: { ref: "main" },
-      head: { ref: headRef, sha: HEAD_SHA, repo: { full_name: REPO } },
+      head: { ref: headRef, sha: headSha, repo: { full_name: REPO } },
     },
     repository: { default_branch: "main", full_name: REPO },
   };
@@ -174,9 +174,26 @@ test("shared conventions reject unsafe names and parse authoritative references"
     [10, 7, 8, 9],
   );
   assert.equal(utils.hasAutomationPrefix("copilot/work", utils.parseBranchPrefixes({})), true);
-  assert.equal(utils.hasAutomationPrefix("arena/session", utils.parseBranchPrefixes({})), false);
+  assert.equal(utils.hasAutomationPrefix("arena/session", utils.parseBranchPrefixes({})), true);
+  assert.equal(utils.hasAutomationPrefix("feature/thing", utils.parseBranchPrefixes({})), false);
   assert.throws(() => utils.parseBranchPrefixes({ BRANCH_CLEANUP_PREFIXES: "*" }), /explicit prefixes/);
   assert.equal(utils.isSafeBranchName("enh/../bad"), false);
+});
+
+test("arena prefix is in the default allowlist without matching unrelated branches", () => {
+  const prefixes = utils.parseBranchPrefixes({});
+  assert.ok(prefixes.includes("arena/"));
+  // An explicit variable replaces the defaults, so the arena opt-in must survive it.
+  assert.deepEqual(
+    utils.parseBranchPrefixes({ BRANCH_CLEANUP_PREFIXES: "arena/, enh" }),
+    ["arena/", "enh/"],
+  );
+  assert.deepEqual(
+    utils.parseBranchPrefixes({ BRANCH_CLEANUP_PREFIXES: "arena//" }),
+    ["arena/"],
+  );
+  assert.equal(utils.hasAutomationPrefix("arena/1234-session", utils.parseBranchPrefixes({})), true);
+  assert.equal(utils.hasAutomationPrefix("arena-foo", utils.parseBranchPrefixes({})), false);
 });
 
 test("issue contract includes Arena limits, exact PR lines and no raw handover content", () => {
@@ -483,14 +500,79 @@ test("issue finalisation closes the linked request with an idempotent completion
   assert.equal(patches[0].state_reason, "completed");
 });
 
+/** Real git checkout so cleanup can compare HEAD with the merged PR head. */
+function cleanupCheckout(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qa-cleanup-head-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const run = (args) =>
+    execFileSync("git", args, {
+      cwd: dir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "Test",
+        GIT_AUTHOR_EMAIL: "test@example.com",
+        GIT_COMMITTER_NAME: "Test",
+        GIT_COMMITTER_EMAIL: "test@example.com",
+      },
+    });
+  run(["init", "-q"]);
+  run(["checkout", "-q", "-b", "main"]);
+  run(["commit", "-q", "--allow-empty", "-m", "merged head"]);
+  return { dir, sha: run(["rev-parse", "HEAD"]).trim() };
+}
+
 test("branch cleanup preserves Arena sessions and unrelated/newer branches", async (t) => {
   const dir = tempDir(t);
+  // arena/session is allowlisted now, and must STILL be preserved: it is a live
+  // session branch, not an unrelated one.
+  const sessionHead = cleanupCheckout(t);
   const arena = await runDeleteMergedBranch(
-    baseEnv(dir, pullRequestEvent({ headRef: "arena/session" }), { GITHUB_EVENT_NAME: "pull_request" }),
+    baseEnv(dir, pullRequestEvent({ headRef: "arena/session", headSha: sessionHead.sha }), {
+      GITHUB_EVENT_NAME: "pull_request",
+      HEAD_BRANCH: "arena/session",
+      HEAD_BRANCH_DIR: sessionHead.dir,
+    }),
     { fetchImpl: router([]).fetchImpl },
   );
   assert.equal(arena.status, "skipped");
-  assert.match(arena.reason, /preserved/);
+  assert.match(arena.reason, /active Arena session branch/);
+
+  // A session branch is preserved even when someone opts into a full sweep.
+  const sessionSweep = await runDeleteMergedBranch(
+    baseEnv(dir, pullRequestEvent({ headRef: "arena/session", headSha: sessionHead.sha }), {
+      GITHUB_EVENT_NAME: "pull_request",
+      HEAD_BRANCH: "arena/session",
+      HEAD_BRANCH_DIR: sessionHead.dir,
+      CLEANUP_ALL_MERGED_BRANCHES: "true",
+    }),
+    {
+      fetchImpl: router([
+        {
+          ...exact("GET", `/repos/${REPO}/branches`),
+          handler: () => json([
+            { name: "main", protected: false },
+            { name: "arena/session", protected: false },
+          ]),
+        },
+      ]).fetchImpl,
+    },
+  );
+  assert.deepEqual(sessionSweep.cleanup.deleted, []);
+
+  // A local HEAD that is not the merged PR head must not be trusted.
+  const staleHead = cleanupCheckout(t);
+  const mismatch = await runDeleteMergedBranch(
+    baseEnv(dir, pullRequestEvent({ headRef: "arena/other-session", headSha: BEFORE }), {
+      GITHUB_EVENT_NAME: "pull_request",
+      HEAD_BRANCH: "arena/other-session",
+      HEAD_BRANCH_DIR: staleHead.dir,
+    }),
+    { fetchImpl: router([]).fetchImpl },
+  );
+  assert.equal(mismatch.status, "skipped");
+  assert.match(mismatch.reason, /local HEAD is not the merged PR head/);
 
   const deleted = [];
   const mock = router([
@@ -502,7 +584,7 @@ test("branch cleanup preserves Arena sessions and unrelated/newer branches", asy
     {
       match: /^GET \/repos\/[^/]+\/[^/]+\/git\/ref\/heads\/copilot\//,
       method: "GET",
-      handler: () => json({ object: { sha: HEAD_SHA } }),
+      handler: () => json({ object: { sha: branchHead.sha } }),
     },
     {
       match: "GET /repos/",
@@ -520,11 +602,30 @@ test("branch cleanup preserves Arena sessions and unrelated/newer branches", asy
       },
     },
   ]);
+  const branchHead = cleanupCheckout(t);
   const result = await runDeleteMergedBranch(
-    baseEnv(dir, pullRequestEvent(), { GITHUB_EVENT_NAME: "pull_request" }),
+    baseEnv(dir, pullRequestEvent({ headSha: branchHead.sha }), {
+      GITHUB_EVENT_NAME: "pull_request",
+      HEAD_BRANCH: "copilot/example",
+      HEAD_BRANCH_DIR: branchHead.dir,
+    }),
     { fetchImpl: mock.fetchImpl },
   );
   assert.equal(result.status, "deleted");
+  assert.equal(deleted.length, 1);
+
+  // Without a checkout the branch tip cannot be judged, so cleanup skips rather
+  // than guessing and deleting a branch that may hold newer commits.
+  const unchecked = await runDeleteMergedBranch(
+    baseEnv(dir, pullRequestEvent(), {
+      GITHUB_EVENT_NAME: "pull_request",
+      HEAD_BRANCH: "copilot/example",
+      HEAD_BRANCH_DIR: "",
+    }),
+    { fetchImpl: mock.fetchImpl },
+  );
+  assert.equal(unchecked.status, "skipped");
+  assert.match(unchecked.reason, /local HEAD is not the merged PR head/);
   assert.equal(deleted.length, 1);
 });
 
