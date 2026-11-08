@@ -108,7 +108,6 @@ tests/               node:test unit + integration + automation suites
 docs/                feature map, ERD, decisions, deployment, test results, ID catalogue
 enhancements/        Markdown vault for future enhancement proposals
 lib/future-enhancements/ Approved Building handovers and archived completions
-enhancements-hub/    Extracted standalone module: multi-tenant Future Enhancements (REST + MCP), attachable to any project
 data/                Local SQLite database (gitignored) + sample import file
 ```
 
