@@ -92,4 +92,6 @@ Hidden sheets, named ranges, pivots and conditional formatting cannot be enumera
 | Live AI drafting of enhancement fields | `lib/ai.ts` (`suggestEnhancementFields`), `app/actions/enhancements.ts`, `components/EnhancementStudio.tsx` |
 | Enhancement intake → GitHub | `tab.enhancements`, markdown vault, archive flow |
 | Handover lifecycle Building → Built → Archived | `sec.enhancements.handovers`, `lib/enhancement-status.ts`, `lib/enhancement-docs.ts`, completion workflow |
+| Two-way GitHub bridge (v2) | `sec.enhancements.github`, `lib/enhancement-bridge.ts`, `lib/enhancement-bridge-store.ts`, `app/actions/enhancement-bridge.ts`, `components/GithubBridgePanel.tsx`, `app/api/enhancements/sync/route.ts`, `enhancement-github-sync.yml` |
+| Reusing the enhancement module in another repository | `sec.enhancements.portability`, `components/BridgePortabilityKit.tsx`, `docs/ENHANCEMENTS-GITHUB-BRIDGE.md` |
 | What's New per PR/merge | `tab.changelog` + admin entry form |

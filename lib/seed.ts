@@ -148,6 +148,8 @@ export const TAB_CATALOGUE: TabSeed[] = [
       { id: "sec.enhancements.intake", label: "Submit a proposal", description: "Live AI options for the outcome, impacted IDs, title, brief, requirements, impacts, expected outcome, success criteria and markdown handover — every field stays editable." },
       { id: "sec.enhancements.vault", label: "Enhancement vault", description: "Submitted, reviewed and archived requests with markdown export." },
       { id: "sec.enhancements.handovers", label: "Handover documents", description: "Building → Built → Archived handover Markdown in lib/future-enhancements/ with the status each document carries." },
+      { id: "sec.enhancements.github", label: "GitHub bridge (v2)", description: "Two-way link between this vault and issues in any GitHub repository: pull issues in, push proposals out, add the linked pull requests." },
+      { id: "sec.enhancements.portability", label: "Reuse in another repository", description: "The module boundary, the configuration it needs and a copy-paste kit so the same tab can be added to any GitHub project." },
     ],
   },
   {
@@ -313,6 +315,26 @@ export const CHANGELOG_ENTRIES: Array<{
     pr: null,
   },
   {
+    version: "1.5.0",
+    title: "Two-way GitHub bridge for Future Enhancements",
+    offset: 0,
+    type: "feature",
+    summary:
+      "The Future Enhancements tab and a GitHub repository now run the same backlog. Proposals can be pushed as issues, issues can be pulled in as proposals, and a two-way sync keeps both live — pull first, then push, so neither side overwrites a change made on the other.",
+    items: [
+      "New GitHub bridge (v2) section (sec.enhancements.github): Sync both ways, Pull from GitHub and Push to GitHub with a per-item run report",
+      "Push opens one issue per proposal, labelled `future-enhancement` and `status:<stage>`, and closes it when the proposal is Archived or Rejected",
+      "Pull imports issues carrying the import label as proposals, refreshes linked ones, and links any pull request that names the issue",
+      "Conflict rules: the furthest-along status wins, Rejected is terminal, a closed issue archives the proposal, and a write is only sent when something actually differs — so the scheduled sync is idempotent",
+      "Every run is journalled in enhancement_sync_events and shown in the panel; the sync actions are audited",
+      "The repository is configuration: GITHUB_ENHANCEMENTS_REPO (env wins over settings) points the same module at any GitHub project",
+      "New Reuse in another repository section (sec.enhancements.portability): the exact files to copy, the BridgeStore contract and a one-click install prompt",
+      "Optional unattended sync: POST /api/enhancements/sync (bearer secret or GitHub webhook signature, disabled when unconfigured) and the Enhancement GitHub bridge sync workflow every 30 minutes and on issue events",
+      "22 new tests (18 bridge conformance cases against a fake GitHub, 4 scheduled-sync cases) — 117 total; documented in docs/ENHANCEMENTS-GITHUB-BRIDGE.md and DECISIONS #30",
+    ],
+    pr: null,
+  },
+  {
     version: "1.4.1",
     title: "Entity-aware login and full company visibility",
     offset: 0,
@@ -448,6 +470,10 @@ export const AI_NOTES: Record<string, string> = {
     "AI guidance · Each proposal keeps its Markdown file in enhancements/. Archiving moves it to enhancements/archive/ so a shipped request is never re-reviewed.",
   "sec.enhancements.handovers":
     "AI guidance · Building publishes the handover, Built means the implementation merged and Archived means the file now lives in lib/future-enhancements/archived/. The deployment that contains the moved file updates the request status, so never archive by hand.",
+  "sec.enhancements.github":
+    "AI guidance · The bridge is two-way on purpose: work can start in the app or in GitHub. Pull before you push so a change made on GitHub is never overwritten by an older local copy. A conflict is reported, not silently resolved — progress never moves backwards, and a Rejected decision is never undone by a state change upstream.",
+  "sec.enhancements.portability":
+    "AI guidance · The bridge is a module, not a rewrite. Point GITHUB_ENHANCEMENTS_REPO at any repository your token can write to and the same tab manages that project's enhancements. Everything it needs is copied from the kit in docs/ENHANCEMENTS-GITHUB-BRIDGE.md.",
   "sec.imports.history":
     "AI guidance · Batch history is the audit trail for every import: dry runs write nothing to activities and every row keeps its disposition and source row number.",
   "sec.imports.run":
@@ -1196,6 +1222,30 @@ export function ensureCatalogue() {
       );
     }
   });
+  ensureBridgeSettings();
+}
+
+/**
+ * Future Enhancements ↔ GitHub bridge (v2) defaults.
+ *
+ * Written only when the key is absent, so an administrator's choice survives a
+ * redeploy. Nothing here is a secret: the token stays in the environment.
+ * `GITHUB_ENHANCEMENTS_REPO` pins the repository for a host that manages a
+ * *different* project's enhancements, which is how the same module is reused
+ * across repositories.
+ */
+export function ensureBridgeSettings() {
+  const defaults: Record<string, string> = {
+    "github.bridge.enabled": process.env.GITHUB_BRIDGE_ENABLED === "false" ? "false" : "true",
+    "github.bridge.repo": process.env.GITHUB_ENHANCEMENTS_REPO ?? "",
+    "github.bridge.label": process.env.GITHUB_ENHANCEMENTS_LABEL ?? "future-enhancement",
+    "github.bridge.state": "all",
+    "github.bridge.status_label_prefix": "status:",
+  };
+  for (const [key, fallback] of Object.entries(defaults)) {
+    if (get(`SELECT 1 FROM settings WHERE key = ?`, key)) continue;
+    setSetting(key, String(fallback));
+  }
 }
 
 export function bootstrapDatabase() {

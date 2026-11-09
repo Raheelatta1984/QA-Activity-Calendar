@@ -75,7 +75,9 @@ erDiagram
 | `colour_rules` | Colour dictionary (activity/pipeline/calendar) |
 | `settings` | Calculation defaults (FTE, hours/day, fiscal month, visibility) |
 | `changelog` | What's New entries with PR references |
-| `enhancements` | Enhancement vault records + markdown path + stage/archive + `ai_fields` (which fields were accepted from the assistant) |
+| `enhancements` | Enhancement vault records + markdown path + stage/archive + `ai_fields` (which fields were accepted from the assistant) + the GitHub bridge pointer (`source`, `github_repo`, `github_issue_number`, `github_state`, `github_labels`, `github_updated_at`, `github_synced_at`, `github_direction`) |
+| `enhancement_links` | Remote objects a proposal points at: its issue and every pull request that names it (`kind`, `number`, `state`, `merged`) |
+| `enhancement_sync_events` | Append-only journal of bridge runs: direction, actor, created/updated/skipped counts and per-item errors |
 | `ai_summaries` | Reserved for stored AI snapshot summaries (provider + payload) |
 
 ### Quality, provenance & audit

@@ -130,3 +130,35 @@ Hours conversion uses a configurable day length: default **7.6h** (source capaci
 **Decision:** the login screen opens on the default company (`is_default = 1`, switchable by an administrator in Master Setup → Companies & entities with an audited `company.set_default` event). A company → entity picker scopes the sign-in roster; demo identities offer one-click fill, imported principals appear with a `credentials not set` badge until an administrator sets a password. Department-less people remain discoverable in the oldest company only. Unknown company/entity URL params fall back silently to the default scope, and an entity from another tenant can never be forced. Changing the default never widens anyone's access — it only chooses which workspace renders first.
 **Why:** the workbook contains two legitimate views (the demo tenant and HarrisFarm Markets); showing an undifferentiated account list would mis-signal who can log in where. Every principal is listed by name/role for orientation, but only accounts with credentials can sign in.
 **Open:** SSO mapping per entity — until then, credentials stay administrator-set via `db:set-password`.
+
+## 30. The enhancement backlog is shared with GitHub, not exported to it
+
+**Decision:** the Future Enhancements vault and a GitHub repository are kept in
+step by a **two-way** bridge (`lib/enhancement-bridge.ts`), not by a one-way
+export. A proposal can start in the app or as an issue; after that both stay
+live. The engine follows four rules, in this order:
+
+1. **Pull before push.** A full run reads GitHub first, so the local copy has
+   seen any edit made on GitHub before anything is written back. A push-only run
+   is available but is not the default.
+2. **Progress never moves backwards.** When the two statuses disagree the
+   furthest-along stage wins (`pipelineStages()` order).
+3. **Rejection is terminal.** `Rejected` is a human decision and is never undone
+   by a state change upstream. A closed issue archives a proposal, never the
+   reverse.
+4. **Write only what changed.** Every write is compared against the remote
+   payload first, so a scheduled run that finds nothing to do issues no writes
+   and the bridge is safe on a timer.
+
+**Why:** the previous integration could only *publish* a handover. Work started
+in GitHub had to be transcribed by hand, and a proposal edited upstream was
+ignored. A one-way export also creates two backlogs that silently diverge — the
+exact failure the vault exists to prevent.
+**Why the repository is configuration:** `GITHUB_ENHANCEMENTS_REPO` (env wins
+over the setting) points the same deployment at any repository, so the module is
+reusable in another GitHub project instead of being welded to this one.
+**Deliberately refused:** an unauthenticated sync endpoint (returns `401` when
+`ENHANCEMENT_SYNC_SECRET` is unset), auto-resolving a conflict in favour of
+whichever side ran last, and decryption of the token outside the server process.
+**Open:** GitHub Projects (v2) fields need a user-level token with `project`
+scope; issues and linked pull requests are supported today.

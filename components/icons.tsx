@@ -201,6 +201,24 @@ const paths: Record<string, React.ReactNode> = {
     </>
   ),
   menu: <path d="M4 7h16M4 12h16M4 17h16" />,
+  gitPull: (
+    <>
+      <circle cx="6" cy="6" r="2.5" />
+      <circle cx="6" cy="18" r="2.5" />
+      <circle cx="18" cy="18" r="2.5" />
+      <path d="M6 8.5v7M18 15.5V12a4 4 0 0 0-4-4h-3" />
+      <path d="m13 5 -2.5 3 2.5 3" />
+    </>
+  ),
+  gitPush: (
+    <>
+      <circle cx="6" cy="6" r="2.5" />
+      <circle cx="6" cy="18" r="2.5" />
+      <circle cx="18" cy="6" r="2.5" />
+      <path d="M6 8.5v7M18 8.5V12a4 4 0 0 1-4 4h-3" />
+      <path d="m13 19 -2.5-3 2.5-3" />
+    </>
+  ),
 };
 
 export function Icon({

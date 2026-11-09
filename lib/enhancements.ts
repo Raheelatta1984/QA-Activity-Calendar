@@ -24,6 +24,17 @@ export type Enhancement = {
   archived_at: string | null;
   created_at: string;
   updated_at: string;
+  /** `app` or `github` — where the proposal first appeared. */
+  source: string;
+  /** GitHub bridge (v2) remote pointer and last synchronisation. */
+  github_repo: string | null;
+  github_issue_number: number | null;
+  github_issue_url: string | null;
+  github_state: string | null;
+  github_labels: string | null;
+  github_updated_at: string | null;
+  github_synced_at: string | null;
+  github_direction: string | null;
 };
 
 const BUNDLE_VAULT = path.join(process.cwd(), "enhancements");

@@ -100,6 +100,8 @@ For a real deployment put Postgres/Neon in front of the data layer (keeps the sa
 | `AI_API_KEY` | no | Only with an approved hosted provider; keep in the secret store |
 | `ENHANCEMENT_VAULT_DIR` | no | Override path for enhancement Markdown files (defaults to `./enhancements` locally, `/tmp/enhancements` on serverless) |
 | `GITHUB_REPO`, `GITHUB_TOKEN` | no | Optional enhancement-vault automation; never expose to the browser |
+| `GITHUB_ENHANCEMENTS_REPO`, `GITHUB_ENHANCEMENTS_LABEL`, `GITHUB_BRIDGE_ENABLED` | no | Two-way enhancement bridge target; the environment wins over the saved setting and needs a token with **Issues: read and write** on that repository |
+| `ENHANCEMENT_SYNC_SECRET` | no | Enables `POST /api/enhancements/sync`; when unset the endpoint returns 401. Pair with the `APP_URL` Actions variable |
 
 Secrets live in the platform secret store. `.env` is gitignored; `.env.example` contains **no** secrets. The app never renders environment values.
 

@@ -15,7 +15,7 @@ them for a new surface; add a new row instead.
 | `tab.capacity` | Capacity | Workspace | viewer | yes | 3 |
 | `tab.reporting` | Reporting | Workspace | viewer | yes | 3 |
 | `tab.releases` | Releases | Delivery | viewer | yes | 3 |
-| `tab.enhancements` | Future Enhancements | Improvement | viewer | yes | 2 |
+| `tab.enhancements` | Future Enhancements | Improvement | viewer | yes | 5 |
 | `tab.validation` | Data Quality | Improvement | viewer | yes | 2 |
 | `tab.imports` | Import Centre | Administration | manager | yes | 2 |
 | `tab.setup` | Master Setup | Administration | manager | yes | 6 |
@@ -87,9 +87,11 @@ them for a new surface; add a new row instead.
 
 | Section ID | Label | Enabled | Description |
 | --- | --- | --- | --- |
-| `sec.enhancements.intake` | Submit a proposal | yes | AI-assisted title, brief, requirements, impacts and success criteria. |
+| `sec.enhancements.intake` | Submit a proposal | yes | Live AI options for the outcome, impacted IDs, title, brief, requirements, impacts, expected outcome, success criteria and markdown handover — every field stays editable. |
 | `sec.enhancements.vault` | Enhancement vault | yes | Submitted, reviewed and archived requests with markdown export. |
-| `sec.enhancements.handovers` | Handover documents | yes | Building → Built → Archived Markdown in `lib/future-enhancements/` and the status each document carries. |
+| `sec.enhancements.handovers` | Handover documents | yes | Building → Built → Archived handover Markdown in lib/future-enhancements/ with the status each document carries. |
+| `sec.enhancements.github` | GitHub bridge (v2) | yes | Two-way link between this vault and issues in any GitHub repository: pull issues in, push proposals out, add the linked pull requests. |
+| `sec.enhancements.portability` | Reuse in another repository | yes | The module boundary, the configuration it needs and a copy-paste kit so the same tab can be added to any GitHub project. |
 
 ### Data Quality — `tab.validation`
 

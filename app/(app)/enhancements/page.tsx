@@ -1,7 +1,12 @@
-import { getViewer, canEdit } from "@/lib/access";
+import { getViewer, canAdmin, canEdit } from "@/lib/access";
+import { setting } from "@/lib/db";
 import { listEnhancements, vaultFiles, vaultInfo, readEnhancementMarkdown, enhancementFileName } from "@/lib/enhancements";
 import { matchHandoverDoc, scanHandoverDocs, type HandoverDoc } from "@/lib/enhancement-docs";
 import { HANDOVER_STATUSES, STATUS_HINTS, pipelineStages } from "@/lib/enhancement-status";
+import { bridgeBlockers, readBridgeEnv, resolveBridgeConfig } from "@/lib/enhancement-bridge";
+import { linksFor, recentSyncEvents } from "@/lib/enhancement-bridge-store";
+import { GithubBridgePanel, type BridgeLinkView, type SyncEventView } from "@/components/GithubBridgePanel";
+import { BridgePortabilityKit } from "@/components/BridgePortabilityKit";
 import { HandoverDocsPanel, type DocRow } from "@/components/HandoverDocsPanel";
 import { formatDate } from "@/lib/dates";
 import { Section } from "@/components/Section";
@@ -54,6 +59,40 @@ export default async function EnhancementsPage() {
   };
   const handoverActive = handovers.active.map(linkDoc);
   const handoverArchived = handovers.archived.map(linkDoc);
+
+  // GitHub bridge (v2): configuration, the remote pointer per proposal and the
+  // recent runs. A misconfigured bridge renders as a banner, never an error.
+  const bridge = resolveBridgeConfig((key, fallback) => setting(key, fallback));
+  const bridgeEnv = readBridgeEnv();
+  const bridgeLinks: BridgeLinkView[] = items
+    .filter((item) => item.github_issue_number || item.github_repo)
+    .map((item) => ({
+      ref: item.ref,
+      title: item.title,
+      status: item.status,
+      issueNumber: item.github_issue_number ?? null,
+      issueUrl: item.github_issue_url ?? null,
+      issueState: item.github_state ?? null,
+      pulls: linksFor(item.id)
+        .filter((row) => row.kind === "pull")
+        .map((row) => ({ number: row.number, url: row.url, state: row.state, merged: Boolean(row.merged) })),
+      syncedAt: item.github_synced_at ?? null,
+      direction: item.github_direction ?? null,
+      source: item.source ?? "app",
+    }));
+  const bridgeEvents: SyncEventView[] = recentSyncEvents(6).map((event) => ({
+    direction: event.direction,
+    actor: event.actor_name,
+    repo: event.repo,
+    pulled: Number(event.pulled),
+    pushed: Number(event.pushed),
+    created: Number(event.created),
+    updated: Number(event.updated),
+    skipped: Number(event.skipped),
+    errors: event.errors ? JSON.parse(event.errors).length : 0,
+    at: event.at,
+  }));
+  const bridgeRepoName = (process.env.GITHUB_REPOSITORY || "Raheelatta1984/QA-Activity-Calendar").trim();
 
   return (
     <main className="page">
@@ -271,6 +310,44 @@ export default async function EnhancementsPage() {
         canEdit={editable}
       >
         <HandoverDocsPanel active={handoverActive} archived={handoverArchived} canEdit={editable} />
+      </Section>
+
+      <Section
+        id="sec.enhancements.github"
+        tabId="tab.enhancements"
+        title="GitHub bridge (v2) — two-way"
+        description="Link this vault to issues in any GitHub repository. Pull imports issues and refreshes linked proposals, push opens or updates the issue for each proposal, and the default two-way run pulls first so neither side overwrites the other."
+        path="/enhancements"
+        canEdit={editable}
+      >
+        <GithubBridgePanel
+          config={{
+            enabled: bridge.enabled,
+            repo: bridge.repo,
+            label: bridge.label,
+            state: bridge.state,
+            statusLabelPrefix: bridge.statusLabelPrefix,
+            hasToken: bridge.hasToken,
+            repoPinnedByEnv: bridge.repoPinnedByEnv,
+            blockers: bridgeBlockers(bridge),
+            envRepo: bridgeEnv.repo,
+          }}
+          links={bridgeLinks}
+          events={bridgeEvents}
+          canEdit={editable}
+          canAdmin={canAdmin(viewer)}
+        />
+      </Section>
+
+      <Section
+        id="sec.enhancements.portability"
+        tabId="tab.enhancements"
+        title="Reuse this in another repository"
+        description="The bridge is a self-contained module, not a fork of this app. This is exactly what to copy, and what it needs to run against a different GitHub project."
+        path="/enhancements"
+        canEdit={editable}
+      >
+        <BridgePortabilityKit repo={bridgeRepoName} />
       </Section>
     </main>
   );

@@ -2,6 +2,20 @@
 
 All notable changes to this project are recorded here and, for in-app users, in the **What's new** tab (`/changelog`, backed by the `changelog` table). Format: version — date — summary.
 
+## 1.5.0 — 2026-11-09 — Two-way GitHub bridge for Future Enhancements
+
+The Future Enhancements tab and a GitHub repository now run the **same** backlog, in both directions.
+
+- **New `sec.enhancements.github` (GitHub bridge v2)**: *Sync both ways*, *Pull from GitHub* and *Push to GitHub*, each with a per-item report (what changed, what was skipped and why), the linked issues with their pull requests, and the last runs.
+- **Push** opens one issue per proposal — labelled `future-enhancement` and `status:<stage>` — and updates title/body/labels afterwards. An `Archived` or `Rejected` proposal closes its issue; reopening it reopens the issue.
+- **Pull** imports issues carrying the import label as proposals, refreshes linked ones (title, brief, requirements, impacts, outcome, success criteria), links any pull request that names the issue, and leaves an older remote version alone.
+- **Conflict rules**: the furthest-along stage wins, `Rejected` is terminal and is never undone by a state change upstream, a closed issue archives the proposal, and a write is only issued when something actually differs — so a scheduled run that finds nothing to do sends nothing.
+- **Every run is recorded** in `enhancement_sync_events`, shown in the panel, and audited as `enhancement.github_pull|push|full|config`.
+- **The repository is configuration, not code**: `GITHUB_ENHANCEMENTS_REPO` (environment wins over the saved setting) points the same module at any GitHub project, so one deployment can manage several backlogs. The new `sec.enhancements.portability` section lists the five portable files, the `BridgeStore` contract and a copy-paste install prompt.
+- **Unattended sync**: `POST /api/enhancements/sync` accepts a bearer `ENHANCEMENT_SYNC_SECRET` or a GitHub webhook signature and returns `401` when unconfigured; `enhancement-github-sync.yml` runs it every 30 minutes and on `issues` events, and exits green with a notice when the repository variable/secret are missing.
+- **Tests**: 18 bridge conformance cases against a fake GitHub (round-trip, idempotency, conflict direction, per-item failure isolation) and 4 scheduled-sync cases — **117 tests**, typecheck and build clean.
+- **Docs**: new [docs/ENHANCEMENTS-GITHUB-BRIDGE.md](./docs/ENHANCEMENTS-GITHUB-BRIDGE.md) (lifecycle, field ownership, configuration, porting kit, conformance checklist) and [DECISIONS #30](./docs/DECISIONS.md).
+
 ## 1.4.1 — 2026-11-09 — Entity-aware login and full company visibility
 
 - **Login screen**: opens on the default company with a company → entity picker; the sign-in roster is scoped to the selected workspace. Demo identities offer one-click fill (`demo1234`); imported principals are listed with a `credentials not set` badge until an administrator sets a password — nothing is invented.
