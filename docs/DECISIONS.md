@@ -162,3 +162,30 @@ reusable in another GitHub project instead of being welded to this one.
 whichever side ran last, and decryption of the token outside the server process.
 **Open:** GitHub Projects (v2) fields need a user-level token with `project`
 scope; issues and linked pull requests are supported today.
+
+## 31. Seeding is conflict-safe and checked inside the write transaction
+
+**Decision:** `seedDemoData()` decides whether demo data is needed **inside** the
+same `BEGIN IMMEDIATE` transaction that writes it, and every seeded insert is
+conflict-safe (`ON CONFLICT DO NOTHING`, including the `enhancements.ref` UNIQUE
+index). A pre-existing row — typically a proposal the GitHub bridge imported —
+always wins over demo data instead of colliding with it.
+
+**Why:** two failures were found in review, both from work arriving *outside* the
+demo seed:
+
+1. A bridge-imported proposal can legitimately hold `ENH-0002`. Seeding then
+   raised `UNIQUE constraint failed: enhancements.ref`; the exception escaped the
+   transaction, `bootstrapDatabase()` threw, and the failure surfaced as a failed
+   prerender of `/_not-found` — so `npm run build` stopped with a message that
+   named neither the seed nor the import.
+2. The "already seeded?" guard sat *before* `BEGIN IMMEDIATE`. Next.js builds and
+   serves with several processes, each with its own bootstrap, so two of them
+   could both decide to seed; the loser hit a constraint while holding the write
+   lock. In production the same race is a cold start that throws.
+
+**Never:** silently deleting a real proposal to make room for demo data, or
+letting a demo row overwrite an imported one. Demo data is the fallback, not the
+authority.
+**Pinned by:** `tests/bootstrap-resilience.test.mts` (imported-ref collision and
+repeat bootstrap).

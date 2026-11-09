@@ -71,6 +71,11 @@ Rejected   → status:rejected
 The prefix is configurable (`status:` by default). Labels are created on demand,
 so a fresh repository needs no manual setup.
 
+Labels are written lower case and matched case-insensitively, then normalised
+back to the canonical stage (`status:built` → `Built`) before ranking and before
+being stored — so every status the bridge writes is one the app accepts, and a
+stage moved on GitHub is always applied.
+
 **Do not** add a `status:*` label by hand and expect it to be authoritative: the
 next pull treats it as a remote status and the furthest-along rule applies. That
 is usually what you want, but it is worth knowing.
@@ -238,6 +243,7 @@ A port is correct when all of these hold — each is covered by a test in
 - [ ] `owner/name` and `github.com` URLs are accepted; anything else is rejected
 - [ ] an unconfigured bridge refuses to run and says exactly what is missing
 - [ ] an issue body round-trips byte-identically (so a no-op push sends no write)
+- [ ] every `status:*` label round-trips to the canonical stage, in any casing
 - [ ] a second push sends zero writes
 - [ ] a human-written body is imported verbatim
 - [ ] an unlabelled issue is ignored

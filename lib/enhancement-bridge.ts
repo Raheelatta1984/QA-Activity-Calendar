@@ -403,16 +403,32 @@ export function statusLabel(prefix: string, status: string): string {
   return `${prefix}${status}`.toLowerCase();
 }
 
-export function statusFromLabels(labels: string[], prefix: string): string | null {
+/**
+ * Read a stage out of a remote label.
+ *
+ * Labels are matched case-insensitively and normalised back to the caller's
+ * canonical spelling, because `status:building` and `Building` must name the
+ * same stage. Without this the parsed value (`building`) does not appear in the
+ * pipeline order, ranks `-1`, and a remote stage change is silently ignored.
+ */
+export function statusFromLabels(labels: string[], prefix: string, canonical: string[] = []): string | null {
   const wanted = prefix.toLowerCase();
   for (const label of labels) {
-    const value = label.toLowerCase();
-    if (value.startsWith(wanted)) {
-      const rest = label.slice(prefix.length).trim();
-      if (rest) return rest;
-    }
+    if (!label.toLowerCase().startsWith(wanted)) continue;
+    const rest = label.slice(prefix.length).trim();
+    if (!rest) continue;
+    const exact = canonical.find((stage) => stage.toLowerCase() === rest.toLowerCase());
+    if (exact) return exact;
+    return rest.charAt(0).toUpperCase() + rest.slice(1);
   }
   return null;
+}
+
+/** Rank a status in the caller's pipeline order, case-insensitively. */
+function rankOf(status: string | null | undefined, stages: string[]): number {
+  if (!status) return -1;
+  const wanted = status.toLowerCase();
+  return stages.findIndex((stage) => stage.toLowerCase() === wanted);
 }
 
 /**
@@ -430,19 +446,29 @@ export function reconcileStatus(input: {
   prefer: "local" | "remote" | "furthest";
 }): { status: string; reason: string } {
   const stages = input.stages;
-  const rank = (status: string) => stages.indexOf(status);
-  let remote = input.remote;
-  if (input.issueClosed && (!remote || rank(remote) < rank("Archived"))) remote = "Archived";
+  const rank = (status: string) => rankOf(status, stages);
+  // Canonicalise to the caller's spelling so the returned status is always one
+  // the database accepts (a remote `building` becomes `Building`).
+  const canonical = (status: string | null | undefined): string | null => {
+    if (!status) return null;
+    const index = rankOf(status, stages);
+    return index >= 0 ? stages[index] : status;
+  };
+  const local = canonical(input.local) ?? input.local;
+  let remote = canonical(input.remote);
+  const archived = canonical("Archived");
+  if (input.issueClosed && (!remote || (archived && rank(remote) < rank(archived)))) remote = archived;
 
-  if (input.prefer === "local") return { status: input.local, reason: "local-wins" };
+  const rejected = canonical("Rejected") ?? "Rejected";
+  if (input.prefer === "local") return { status: local, reason: "local-wins" };
   if (input.prefer === "remote") {
-    return remote ? { status: remote, reason: "remote-wins" } : { status: input.local, reason: "remote-has-no-status" };
+    return remote ? { status: remote, reason: "remote-wins" } : { status: local, reason: "remote-has-no-status" };
   }
-  if (input.local === "Rejected") return { status: "Rejected", reason: "rejection-is-terminal" };
-  if (!remote) return { status: input.local, reason: "remote-has-no-status" };
-  if (rank(remote) > rank(input.local)) return { status: remote, reason: "remote-is-further-along" };
-  if (rank(input.local) > rank(remote)) return { status: input.local, reason: "local-is-further-along" };
-  return { status: input.local, reason: "in-agreement" };
+  if (local.toLowerCase() === rejected.toLowerCase()) return { status: local, reason: "rejection-is-terminal" };
+  if (!remote) return { status: local, reason: "remote-has-no-status" };
+  if (rank(remote) > rank(local)) return { status: remote, reason: "remote-is-further-along" };
+  if (rank(local) > rank(remote)) return { status: local, reason: "local-is-further-along" };
+  return { status: local, reason: "in-agreement" };
 }
 
 // ---------------------------------------------------------------------------
@@ -585,7 +611,7 @@ export async function pullFromGithub(options: PullOptions): Promise<SyncReport> 
     try {
       const issue = await client.getIssue(Number(record.github_issue_number));
       const labels = (issue.labels ?? []).map(labelName);
-      const remoteStatus = statusFromLabels(labels, config.statusLabelPrefix);
+      const remoteStatus = statusFromLabels(labels, config.statusLabelPrefix, stages);
       const decision = reconcileStatus({
         local: record.status,
         remote: remoteStatus,
@@ -700,7 +726,7 @@ export async function pullFromGithub(options: PullOptions): Promise<SyncReport> 
         }
         inspected += 1;
         const parsed = parseIssueBody(issue.body);
-        const remoteStatus = statusFromLabels(labels, config.statusLabelPrefix) ?? (issue.state === "closed" ? "Archived" : "Submitted");
+        const remoteStatus = statusFromLabels(labels, config.statusLabelPrefix, stages) ?? (issue.state === "closed" ? "Archived" : "Submitted");
         const ref = store.nextRef();
         const record = store.create({
           ref,
@@ -831,7 +857,7 @@ export async function pushToGithub(options: PushOptions): Promise<SyncReport> {
 
       const issue = await client.getIssue(record.github_issue_number);
       const remoteLabels = (issue.labels ?? []).map(labelName);
-      const remoteStatus = statusFromLabels(remoteLabels, config.statusLabelPrefix);
+      const remoteStatus = statusFromLabels(remoteLabels, config.statusLabelPrefix, stages);
       const decision = reconcileStatus({
         local: record.status,
         remote: remoteStatus,
