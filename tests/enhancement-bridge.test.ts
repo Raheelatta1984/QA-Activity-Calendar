@@ -260,9 +260,52 @@ test("a body written by a human is preserved, with no metadata invented", () => 
 
 test("status labels are a two-way mapping", () => {
   assert.equal(statusLabel("status:", "Building"), "status:building");
-  assert.equal(statusFromLabels(["enhancement", "status:built"], "status:"), "built");
-  assert.equal(statusFromLabels(["enhancement"], "status:"), null);
-  assert.equal(statusFromLabels(["other:built"], "status:"), null);
+  assert.equal(statusFromLabels(["enhancement", "status:built"], "status:", STAGES), "Built");
+  assert.equal(statusFromLabels(["enhancement"], "status:", STAGES), null);
+  assert.equal(statusFromLabels(["other:built"], "status:", STAGES), null);
+  // Round-trip every canonical stage: the label written by a push must parse
+  // back to exactly the stage that was pushed. Lower-casing the label must not
+  // lose the stage — a parsed `building` ranks -1 and is silently ignored.
+  for (const stage of STAGES) {
+    const label = statusLabel("status:", stage);
+    assert.ok(label === label.toLowerCase(), `${label} should be lower case`);
+    assert.equal(statusFromLabels([label], "status:", STAGES), stage);
+    assert.equal(statusFromLabels([label], "status:"), stage.charAt(0).toUpperCase() + stage.slice(1).toLowerCase());
+    assert.equal(reconcileStatus({ local: "Submitted", remote: statusFromLabels([label], "status:", STAGES), issueClosed: false, stages: STAGES, prefer: "furthest" }).status, stage);
+  }
+  // A custom prefix and mixed-case labels behave the same way.
+  assert.equal(statusFromLabels(["Stage/BUILT"], "stage/", STAGES), "Built");
+});
+
+test("a remote stage change is applied on pull, whatever the label casing", async () => {
+  // The regression this pins: pushes write `status:building`, pulls parsed
+  // `building`, which did not appear in the pipeline order — so the remote stage
+  // was ranked -1 and ignored, and the two-way sync became one-way in practice.
+  const issue: GithubIssue = {
+    number: 41,
+    title: "Accepted locally, building on GitHub",
+    body: "### Requirements\n\nShip it",
+    state: "open",
+    html_url: "https://github.com/owner/repo/issues/41",
+    updated_at: "2026-11-09T00:00:00Z",
+    labels: [{ name: "future-enhancement" }, { name: "status:building" }],
+  };
+  const github = fakeGithub([issue]);
+  const existing = record({
+    github_repo: "owner/repo",
+    github_issue_number: 41,
+    github_synced_at: "2026-11-08T00:00:00Z",
+    status: "Accepted",
+  });
+  const { store, updates } = fakeStore([existing]);
+  const client = createGithubClient({ repo: config.repo, token: "t", fetchImpl: github.fetchImpl });
+
+  const report = await pullFromGithub({ client, store, config, stages: STAGES });
+  assert.equal(report.errors.length, 0);
+  assert.equal(updates[0].patch.status, "Building", "the canonical stage must come back, not `building`");
+  // Whatever is written to the database must be a status the app accepts.
+  const { isEnhancementStatus } = await import("../lib/enhancement-status");
+  assert.equal(isEnhancementStatus(updates[0].patch.status), true);
 });
 
 test("a disagreement never loses progress and never undoes a rejection", () => {
@@ -375,7 +418,7 @@ test("pull imports a labelled issue into the vault with its status", async () =>
   assert.equal(report.errors.length, 0);
   assert.equal(report.created, 1);
   assert.equal(created[0].title, "Add a two-way GitHub bridge");
-  assert.equal(created[0].status, "accepted");
+  assert.equal(created[0].status, "Accepted", "remote labels normalise to the canonical stage");
   assert.match(String(created[0].brief), /both places/);
 });
 

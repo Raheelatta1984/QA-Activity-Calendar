@@ -2,6 +2,14 @@
 
 All notable changes to this project are recorded here and, for in-app users, in the **What's new** tab (`/changelog`, backed by the `changelog` table). Format: version — date — summary.
 
+## 1.5.1 — 2026-11-09 — Bridge applies remote stage changes (fix)
+
+- **Fixed**: status labels are written lower case (`status:building`) but were parsed back verbatim (`building`), which has no rank in the pipeline order. A stage changed **on GitHub** therefore ranked `-1` and was treated as "local is further along" — the bridge silently ignored upstream progress and the two-way sync was one-way in practice.
+- Remote labels now normalise to the canonical stage (`Built`, not `built`) before ranking and before being written to the database, so every status the bridge stores is one the app accepts.
+- Status comparison is case-insensitive end to end, including a custom label prefix.
+- Tests: a round-trip case for **every** canonical stage plus a pull test that asserts the canonical stage is applied — **118 tests**.
+- **Fixed (bootstrap)**: a bridge-imported proposal can hold a ref the demo seed also wants (`ENH-0002`); seeding aborted on the `enhancements.ref` UNIQUE index and the exception escaped the transaction, failing the Next.js prerender of `/_not-found` so `npm run build` stopped. Seed inserts are now conflict-safe (an existing proposal always wins over demo data) and the "already seeded?" check runs **inside** the write transaction, so parallel build workers can no longer both seed. Two regression tests added — **120 tests**.
+
 ## 1.5.0 — 2026-11-09 — Two-way GitHub bridge for Future Enhancements
 
 The Future Enhancements tab and a GitHub repository now run the **same** backlog, in both directions.

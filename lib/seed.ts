@@ -315,6 +315,21 @@ export const CHANGELOG_ENTRIES: Array<{
     pr: null,
   },
   {
+    version: "1.5.1",
+    title: "Bridge applies remote stage changes",
+    offset: 0,
+    type: "fix",
+    summary:
+      "A status changed on GitHub is now applied in the app. Status labels are written lower case, and the parsed value did not match the pipeline order, so an upstream stage change was silently ignored and the two-way sync behaved like a one-way export.",
+    items: [
+      "Remote `status:*` labels normalise to the canonical stage (Built, not built) before ranking and before being stored",
+      "Every status the bridge writes is one the app accepts; comparison is case-insensitive end to end, including a custom label prefix",
+      "Round-trip test for every canonical stage plus a pull test asserting the canonical stage is applied — 118 tests",
+      "Bootstrap: a bridge-imported proposal holding a seeded ref (ENH-0002) no longer aborts the demo seed, and the seed guard now sits inside the write transaction so parallel build workers cannot both seed",
+    ],
+    pr: null,
+  },
+  {
     version: "1.5.0",
     title: "Two-way GitHub bridge for Future Enhancements",
     offset: 0,
@@ -688,11 +703,22 @@ export function ensureReference() {
 }
 
 export function seedDemoData() {
-  if (get<{ n: number }>("SELECT COUNT(*) AS n FROM activities")?.n) return false;
+  // The "is demo data already here?" check lives INSIDE the write transaction.
+  // Next.js runs several build/SSR workers in parallel and each bootstraps its
+  // own process, so a check made before BEGIN IMMEDIATE would let two workers
+  // both decide to seed; the loser then raises a UNIQUE constraint while holding
+  // the write lock, failing the prerender of /_not-found and — in production — a
+  // cold start. Inside the transaction the check sees committed rows, so the
+  // second call is a clean no-op. The individual inserts are also conflict-safe
+  // (see the seeded proposals below), so a *pre-existing* row can never turn
+  // demo seeding into an error.
   const fy = fiscalYearOf(today());
   const fyBounds = fiscalYearBounds(fy.startYear);
+  let seeded = false;
 
   transaction(() => {
+    if (get<{ n: number }>("SELECT COUNT(*) AS n FROM activities")?.n) return;
+    seeded = true;
     // ------------------------------------------------------------------ applications
     const apps: Array<[string, string, string]> = [
       ["app_hfmcore", "HFM Core", "Core financial modelling application"],
@@ -1079,9 +1105,18 @@ export function seedDemoData() {
       ],
     ];
     enhancements.forEach(([title, brief, requirements, impacts, outcome, success], i) => {
+      // Seeded proposals take fixed refs (ENH-0001…), and a real proposal may
+      // already hold one — the GitHub bridge imports whatever refs GitHub has,
+      // so a pre-existing ENH-0002 with a different id used to abort the whole
+      // bootstrap on the `enhancements.ref` UNIQUE index. That failure escaped
+      // the transaction and took down the prerender of /_not-found during
+      // `npm run build`. `ON CONFLICT DO NOTHING` without a target covers both
+      // the primary key and the ref: an existing proposal always wins over demo
+      // data, which is the correct precedence.
       run(
         `INSERT INTO enhancements (id, ref, title, brief, requirements, impacts, expected_outcome, success_criteria, markdown, status, submitted_by, department_id, votes, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+         ON CONFLICT DO NOTHING`,
         `enh_seed_${i + 1}`,
         `ENH-${String(i + 1).padStart(4, "0")}`,
         title,
@@ -1121,7 +1156,7 @@ export function seedDemoData() {
     );
   });
 
-  return true;
+  return seeded;
 }
 
 function colourForGroup(group: string): string {
