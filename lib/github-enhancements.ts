@@ -17,12 +17,24 @@ export async function publishBuildingEnhancement(filename: string, content: stri
     if (file.type !== "file" || !file.sha) throw new Error("The GitHub handover path is not a file.");
     sha = file.sha;
   } else if (previous.status !== 404) {
-    throw new Error(`GitHub could not read the handover (HTTP ${previous.status}).`);
+    const detail = await previous.json().catch(() => null);
+    const reason = typeof detail?.message === "string" ? ` ${detail.message.split("\n")[0]}` : "";
+    const hint =
+      previous.status === 401
+        ? " The server's GITHUB_TOKEN is invalid or expired; replace it with a token that has Contents read/write access to this repository."
+        : " Check GITHUB_TOKEN repository access.";
+    throw new Error(`GitHub could not read the handover (HTTP ${previous.status}).${reason}${hint}`);
   }
   const response = await fetch(url, {
     method: "PUT", headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify({ message: `docs: publish ${filename} for building`, content: Buffer.from(content, "utf8").toString("base64"), branch, ...(sha ? { sha } : {}) }),
   });
-  if (!response.ok) throw new Error(`GitHub could not publish the handover (HTTP ${response.status}). Check repository permissions and branch protection.`);
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    const reason = typeof detail?.message === "string" ? ` ${detail.message.split("\n")[0]}` : "";
+    throw new Error(
+      `GitHub could not publish the handover (HTTP ${response.status}).${reason} Check repository permissions and branch protection.`,
+    );
+  }
   return filePath;
 }
