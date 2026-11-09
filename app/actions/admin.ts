@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { all, get, run, setSetting } from "@/lib/db";
-import { canAdmin, canManagePeople, getViewer, loadOrg, descendantsOf } from "@/lib/access";
+import { canAdmin, canManagePeople, getViewer, loadOrg, descendantsOf, scopedDepartmentId } from "@/lib/access";
 import { hashPassword } from "@/lib/auth";
 import { uid } from "@/lib/ids";
 import { isIsoDate, isoToday } from "@/lib/dates";
@@ -139,9 +139,29 @@ export async function savePersonAction(_prev: AdminResult, formData: FormData): 
     if (id && !scope.has(id)) return { error: "You can only edit your own team." };
     if (managerId && !scope.has(managerId)) return { error: "The manager must be inside your team." };
   }
-
   const capacity = Number(formData.get("capacity_hours_day") ?? 7.6) || 7.6;
   const departmentId = value(formData, "department_id") || null;
+  // Department-scoped admins (DEPARTMENT_ADMIN) manage only their own department.
+  if (viewer.role === "department_admin") {
+    const scope = scopedDepartmentId(viewer.person);
+    if (!scope) return { error: "This department administrator account is not linked to a department." };
+    if (id) {
+      const beforePerson = get<{ department_id: string | null }>(`SELECT department_id FROM people WHERE id = ?`, id);
+      if (!beforePerson) return { error: "Person no longer exists." };
+      if (beforePerson.department_id !== scope) return { error: "You can only manage people in your own department." };
+    }
+    if (!id && !departmentId) return { error: "Choose your department when adding a person." };
+    if (departmentId && departmentId !== scope) {
+      return { error: "You can only assign people to your own department." };
+    }
+    if (managerId) {
+      const mgr = get<{ department_id: string | null }>(`SELECT department_id FROM people WHERE id = ?`, managerId);
+      if (mgr && mgr.department_id !== scope) return { error: "The manager must be inside your department." };
+    }
+  }
+  if (role === "department_admin" && viewer.role !== "admin") {
+    return { error: "Only an application administrator can grant department-level administration." };
+  }
   const active = formData.get("active") === "on" || formData.get("active") === "1" ? 1 : 0;
   const password = value(formData, "password");
 

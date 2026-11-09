@@ -38,6 +38,12 @@ export const RULE_CATALOGUE: { rule: string; severity: string; description: stri
     description: "Active activity belongs to a disabled department and is excluded from operational views.",
   },
   {
+    rule: "activity.assignment_review",
+    severity: "warning",
+    description: "Imported active activity carries a raw assignee label (e.g. 'Sudeep/Mukti') that has not been matched to a person — assignment needs human review, it is never auto-created.",
+    parity: "Unresolved 'Assing To' labels stay visible until confirmed.",
+  },
+  {
     rule: "activity.fte_conflict",
     severity: "warning",
     description: "An assignee carries more than 1.0 FTE of active work on the same working day.",
@@ -46,6 +52,12 @@ export const RULE_CATALOGUE: { rule: string; severity: string; description: stri
     rule: "pipeline.missing_dates",
     severity: "warning",
     description: "Pipeline item has no usable planned or actual range, so eligibility cannot be computed.",
+  },
+  {
+    rule: "pipeline.needs_confirmation",
+    severity: "info",
+    description: "TEST-labelled imported pipeline record preserved as-is, awaiting owner confirmation before being treated as operational.",
+    parity: "TEST source labels are kept literally, never relabelled or deleted.",
   },
   {
     rule: "pipeline.blocked_without_reason",
@@ -148,6 +160,18 @@ export function detectIssues(): Issue[] {
       });
     }
   }
+  for (const activity of activities) {
+    const raw = typeof activity.source_assignee_text === "string" ? activity.source_assignee_text.trim() : "";
+    if (activity.active && raw && !activity.assignee_id) {
+      issues.push({
+        severity: "warning",
+        entity: "activity",
+        entity_id: activity.id,
+        rule: "activity.assignment_review",
+        message: `${activity.activity}: assignee '${raw}' is not matched to a person — review assignment.`,
+      });
+    }
+  }
   for (const [code, ids] of seenCodes) {
     if (ids.length > 1) {
       issues.push({
@@ -221,6 +245,15 @@ export function detectIssues(): Issue[] {
         entity_id: item.id,
         rule: "pipeline.test_record",
         message: `${item.activity} is a TEST record (demo only).`,
+      });
+    }
+    if (item.verification_status === "Needs operational confirmation") {
+      issues.push({
+        severity: "info",
+        entity: "pipeline",
+        entity_id: item.id,
+        rule: "pipeline.needs_confirmation",
+        message: `${item.activity} is a TEST-labelled source record awaiting owner confirmation.`,
       });
     }
   }

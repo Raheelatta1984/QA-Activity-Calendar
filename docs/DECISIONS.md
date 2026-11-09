@@ -67,8 +67,8 @@ Hours conversion uses a configurable day length: default **7.6h** (source capaci
 **Why:** idempotency and "unknown stays unknown".
 
 ## 16. Overlap / blocking parity
-**Decision:** an Active QA activity overlapping a recording day blocks that day. Inactive QA never does. Manual exclusions always win. The source has named exemptions (matching Activity/Detail) that are **not** reproduced.
-**Open:** confirm the approved common rule for named exemptions before changing behaviour.
+**Decision:** an Active QA activity overlapping a recording day blocks that day. Inactive QA never does. Manual exclusions always win. The source's named-exemption rule — pipeline Days are not blocked where the pipeline title matches the activity's Activity or Activity Detail after trimming and case-insensitive comparison — *is* reproduced by the HFM effective-duration computation (see #25). A match suppresses only that activity's block for that day; an unrelated conflict on the same day still blocks.
+**Resolved:** confirmed by the HFM reconciliation spec (2026-11-09). No longer open.
 
 ## 17. Demo data separation
 **Decision:** synthetic rows carry `is_demo = 1` and are labelled "TEST"/demo in the UI. They are excluded from operational claims and can be removed by resetting a local database. Production instances set `SEED_DEMO_DATA=false`.
@@ -102,3 +102,26 @@ Hours conversion uses a configurable day length: default **7.6h** (source capaci
 **Decision:** the enhancement studio drafts options for the outcome, impacted tab/section IDs, title, brief, requirements, impacts, expected outcome, success criteria and markdown handover in real time as the request is typed. Each field offers 1–3 options. A field the author has typed into is never overwritten; accepted drafts are recorded on the proposal (`enhancements.ai_fields`) and in the markdown front matter.
 **Why:** the request asked for AI-driven drafting that is always reviewable — the author must be able to accept, edit or ignore any suggestion right up to submission.
 **Constraint:** suggestions come from the same deterministic, local engine as the rest of the app (#12). No operational data leaves the server and no hosted model is called.
+
+## 24. HFM import owns structure; humans own confirmation
+**Decision:** the HFM snapshot seeds the org scaffold (HarrisFarm Markets company with `is_default = 1`, Harrisfarm entity, `HFM IT QA` department) and the two named people. Damien Milthorpe is seeded as `department_admin` scoped to HFM IT QA with **no email and no password**; Raheel Atta is `admin`, resolved only by the supplied email, reporting to Damien. Unresolved assignee labels (`Sudeep/Mukti`, `Naweesh`, `Tristan`, `Sujan`) stay unassigned and surface as `activity.assignment_review` warnings. The import never invents credentials, people, holidays, emails or relationships, and never fetches reference data from the network.
+**Why:** the source workbook names roles and one email; everything else would be invention. Operator-set passwords go through `npm run db:set-password` (audited, never logged).
+**Open:** confirm Damien's email/IdP identity before granting him a login in production.
+
+## 25. Pipeline effective duration is live, provisional until holidays are verified
+**Decision:** the pipeline board computes a live Monday–Friday duration in the planned window minus the deduplicated union of (a) auto-blocked days (Active master rows with valid inclusive ranges, excluding title/Activity/Detail matches per #16) and (b) manual + global exclusions. Source `Duration Days` snapshots are retained verbatim in `source_duration_days` and never overwritten. NSW holidays are subtracted only when the `holidays.verified` setting is `true` and the holiday table is populated; otherwise the figure is labelled provisional. Blank source automation/status/fraction stay `NULL` — never zero-filled — and are stored as `automation_fraction` (canonical 0–1) with `automation_percent` derived for display.
+**Why:** the workbook formula is a snapshot; the operational question is live. Provisional labelling prevents an unverified holiday list from silently shrinking commitments.
+**Open:** mark `holidays.verified = true` after the holiday table is verified against the approved NSW source.
+
+## 26. Department moves survive re-import
+**Decision:** `department_id` on imported rows is migration-owned only until a human re-parents the row. A re-apply whose source department differs from the current value records a `department_id` conflict in the report and leaves the row where the human put it — it is never silently re-parented. To return a row to source ownership, move it back to `HFM IT QA` before re-importing (no conflict then).
+**Why:** a portal edit is a deliberate human act; silently reverting it on refresh would destroy information the workbook cannot express. Conflicts stay visible in the import report; they are not errors.
+**Supersedes:** the earlier “overwrite department on re-import” mechanism, which contradicted this file's own comment.
+
+## 27. TEST labels are provenance, not noise
+**Decision:** `TEST-*` pipeline rows are retained verbatim (`is_test = 1`, `source_test_label = 1`, `verification_status = 'Needs operational confirmation'`). They are excluded from operational KPIs like any TEST row, and flipping one to `Confirmed operational` requires an application administrator and an audit event (`pipeline.verification_confirmed`). Re-import never downgrades a confirmation. Validation reports `pipeline.needs_confirmation` as info, `activity.assignment_review` as warning.
+**Open:** owner (Raheel) to confirm which TEST records, if any, are operational before relying on pipeline totals.
+
+## 28. Rollback is scoped to imported rows
+**Decision:** `--rollback <import_batch_id>` deletes only rows whose `import_batch_id` matches the batch (plus their `validation_issues`), marks the batch `rolled_back` and writes audit events. Organisation rows (company/entity/department), people profiles, role grants, settings and demo data survive. Undoing the org scaffold additionally requires restoring the automatic pre-apply backup in `data/backups/`.
+**Why:** the workbook is re-importable by construction; deleting org structure blindly could strand portal-owned data that references it.

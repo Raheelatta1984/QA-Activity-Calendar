@@ -23,6 +23,24 @@ Demo identities all use the password `demo1234`:
 
 ---
 
+## HFM workbook import
+
+The HarrisFarm Markets QA workbook snapshot (2026-11-09) ships embedded in this repository. After migrate + seed:
+
+```bash
+npm run db:hfm-import              # dry-run — writes nothing
+npm run db:hfm-import -- --apply   # commit (automatic backup first)
+npm run db:hfm-import -- --verify  # 23 read-only acceptance checks
+```
+
+It seeds the HFM org (HarrisFarm Markets → Harrisfarm → `HFM IT QA`), Damien Milthorpe (`department_admin`, **no email/password until an operator sets one**), Raheel Atta (`admin`, manager: Damien), 52 master activities (41 Active / 11 Inactive), 15 pending pipeline rows (TEST labels kept verbatim, flagged `Needs operational confirmation`) and 14 manual exclusions. Re-apply is idempotent; department moves survive re-import; `--rollback <import_batch_id>` reverses an import without touching the organisation or demo data. Full operator guide: [docs/HFM-IMPORT.md](./docs/HFM-IMPORT.md).
+
+Demo identities (local only, password `demo1234`) are unchanged — the imported HFM people have **no** passwords. Give one a login with:
+
+```bash
+printf 'a-long-password\n' | npm run db:set-password -- --email ratta@harrisfarm.com.au --password-stdin
+```
+
 ## What is in the app
 
 | Tab | Stable ID | What it does |

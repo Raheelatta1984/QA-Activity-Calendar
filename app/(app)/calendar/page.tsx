@@ -26,7 +26,7 @@ export const dynamic = "force-dynamic";
 export default async function CalendarPage({
   searchParams,
 }: {
-  searchParams: Promise<{ fy?: string; q?: string; month?: string; activity?: string }>;
+  searchParams: Promise<{ fy?: string; q?: string; month?: string; activity?: string; active?: string }>;
 }) {
   const viewer = await getViewer();
   const settings = appSettings();
@@ -46,6 +46,7 @@ export default async function CalendarPage({
     startYear: fiscalYearStartYearFromLabel(label),
   }));
 
+  const activeFilter = params.active === "inactive" || params.active === "all" ? params.active : "active";
   const selectedYear = params.fy && years.has(params.fy) ? params.fy : currentFiscal.label;
   const startYear = fiscalYearStartYearFromLabel(selectedYear);
   const quarters = fiscalQuarters(startYear, settings.fiscalStartMonth);
@@ -71,7 +72,9 @@ export default async function CalendarPage({
   const activities = listActivities(viewer, {
     from: grid.weeks[0][0].date,
     to: grid.weeks[5][6].date,
-  }).filter((a) => a.active === 1);
+  }).filter((a) =>
+    activeFilter === "all" ? true : activeFilter === "active" ? a.active === 1 : a.active !== 1
+  );
 
   const pipeline = listPipeline(viewer).filter(
     (p) => p.effective_start && p.effective_end && p.effective_start < monthEndIso && p.effective_end >= monthStartIso
@@ -111,10 +114,10 @@ export default async function CalendarPage({
       <PageHeader
         id="tab.calendar" path="/calendar" canEdit={canEdit(viewer)}
         title="QA Calendar"
-        description="Fiscal-year month grid built from the activity ledger. Only Active activities render — weekends, NSW public holidays, today and the current week are highlighted."
+        description="Fiscal-year month grid built from the activity ledger. Active activities render by default — switch the Active/Inactive/All filter to include inactive records. Weekends, NSW public holidays, today and the current week are highlighted."
         meta={
           <>
-            {activeInMonth.length} activities · {grid.workingDays} working days · Q{quarterForMonth} {selectedYear}
+            {activeInMonth.length} {activeFilter === "all" ? "" : `${activeFilter} `}activities · {grid.workingDays} working days · Q{quarterForMonth} {selectedYear}
           </>
         }
       />
@@ -153,6 +156,22 @@ export default async function CalendarPage({
               Q{q.quarter} · {monthLabel(q.start).split(" ")[0]}–{monthLabel(q.end).split(" ")[0]}
             </a>
           ))}
+          <div style={{ width: 1, background: "var(--border)", margin: "0 4px" }} />
+          {(["active", "inactive", "all"] as const).map((mode) => {
+            const p = new URLSearchParams({ fy: selectedYear, active: mode });
+            if (selectedQuarter) p.set("q", String(selectedQuarter));
+            if (validMonth) p.set("month", validMonth);
+            return (
+              <a
+                key={mode}
+                href={`/calendar?${p.toString()}`}
+                className={`btn btn-sm ${activeFilter === mode ? "btn-primary" : "btn-ghost"}`}
+                title={mode === "all" ? "Include Active and Inactive activities" : `Show only ${mode} activities`}
+              >
+                {mode === "all" ? "All" : mode[0].toUpperCase() + mode.slice(1)}
+              </a>
+            );
+          })}
           <span className="card-sub" style={{ marginLeft: "auto", alignSelf: "center" }}>
             {selectedYear} = July {startYear} – June {startYear + 1}
           </span>

@@ -313,6 +313,25 @@ export const CHANGELOG_ENTRIES: Array<{
     pr: null,
   },
   {
+    version: "1.4.0",
+    title: "HFM source snapshot imported and reconciled",
+    offset: 0,
+    type: "feature",
+    summary:
+      "The HarrisFarm Markets QA workbook is seeded into the app: 52 master activities (41 Active / 11 Inactive), 15 pending recording-pipeline rows kept verbatim with their TEST labels, and 14 manual exclusions. Idempotent, audited, reversible and verified end to end.",
+    items: [
+      "HFM organisation: HarrisFarm Markets company (default), Harrisfarm entity, HFM IT QA department; Damien Milthorpe seeded as department-scoped administrator (email deliberately NULL until verified); Raheel Atta as application administrator reporting to him",
+      "Master activities keep literal source Calendar Item IDs, raw notes and '&amp;' text, Activity Group and source Active Status; invalid or missing dates stay NULL and remain in the unscheduled queue",
+      "Pipeline TEST labels are preserved end to end (is_test=1, source_test_label=1, verification_status 'Needs operational confirmation'); an application administrator confirms operationalisation — the import never does",
+      "Automation stored as a canonical fraction (TEST-001 = 0.55); blanks stay NULL and are never zero-filled",
+      "Pipeline board shows a live effective Mon–Fri duration (weekdays − auto QA-overlap − manual exclusions) alongside the retained source Duration Days snapshot",
+      "Calendar gains an Active | Inactive | All filter (default Active); NSW holidays are only subtracted from durations when the holiday configuration is marked verified",
+      "A manually re-parented department survives re-import — recorded as a conflict, never overwritten; rollback by import batch deletes only imported rows and keeps the organisation",
+      "Login lands on the calendar; department administrators see only their own department; login page and switch-persona preview honour the new role",
+    ],
+    pr: null,
+  },
+  {
     version: "1.2.0",
     title: "One-time login welcome message",
     offset: 0,
@@ -1046,20 +1065,9 @@ export function seedDemoData() {
     });
 
     // ------------------------------------------------------------------ changelog
-    CHANGELOG_ENTRIES.forEach((entry) =>
-      run(
-        `INSERT INTO changelog (id, version, title, date, type, pr_number, summary, items, published)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-        uid("cl"),
-        entry.version,
-        entry.title,
-        d(entry.offset),
-        entry.type,
-        entry.pr,
-        entry.summary,
-        JSON.stringify(entry.items)
-      )
-    );
+    // ensureCatalogue() already inserts any missing CHANGELOG_ENTRIES (it runs on
+    // every bootstrap); do not insert them again here or fresh databases get
+    // duplicated release notes.
 
     run(
       `INSERT INTO audit_events (id, actor_id, actor_name, action, entity, entity_id, meta)

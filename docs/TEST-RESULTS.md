@@ -2,7 +2,7 @@
 
 Run with `npm test` (Node's built-in test runner via `tsx`). The integration suite runs against an isolated temporary database, so it never touches your working data.
 
-**Last run:** 8 Nov 2026 · Node 22.x · `75 tests, 75 pass, 0 fail` · `npm run typecheck` clean · `npm run build` succeeded.
+**Last run:** 9 Nov 2026 · Node 22.x · `88 tests, 88 pass, 0 fail` · `npm run typecheck` clean · `npm run build` succeeded · HFM acceptance verification `23 passed, 0 failed` on the local demo database.
 
 ## Automated suites
 
@@ -60,14 +60,27 @@ Run with `npm test` (Node's built-in test runner via `tsx`). The integration sui
 | 50 | build verification requires a successful latest Build and test check | Exact-head-SHA gate (also verifiable from `PR_NUMBER`) |
 | 51 | all workflow YAML parses and the CI gate is wired into completion | Completion also runs on the CI-gated merge `workflow_run` |
 | 52 | completion resolution fetches the merged PR when the event carries none | `workflow_run` / manual repair path resolves the merged PR and its linked request |
+| 53 | HFM payload matches embedded expected counts before any write | Source-snapshot checksum guard |
+| 54 | HFM dry-run validates without writing anything | Default mode is non-destructive |
+| 55 | HFM apply commits 52/15/14 in one transaction with a batch ID | Import atomicity + provenance |
+| 56 | HFM re-apply is fully idempotent | No duplicates on refresh |
+| 57 | a manually re-parented department survives re-import | Conflict recorded, never overwritten |
+| 58 | HFM acceptance verification passes every check | 23-check `verifyHfmImport()` |
+| 59 | source fidelity: literal IDs, fractions, raw text, NULL preservation | QA-008 / QA-00013 / TEST-001 0.55 / TEST-009 NULL / `&amp;` raw |
+| 60 | TEST-labelled records preserved, flagged for owner confirmation | `is_test`, `source_test_label`, `verification_status` |
+| 61 | unresolved assignee labels flagged, never silently matched | `activity.assignment_review`; no invented people |
+| 62 | pipeline `needs_confirmation` reported as info, never error | Rule catalogue severity |
+| 63 | effective duration subtracts union of auto overlaps + manual exclusions | Weekday arithmetic; union dedup; holiday gate; incomplete range → NULL |
+| 64 | department-scoped administrators isolated to their own department | `scopeFor` / `canAdminDepartment` / `canManageDepartment` |
+| 65 | rollback removes only imported snapshot; org + demo data survive | Rollback scoping |
 
 Full test output (abridged):
 
 ```
-# tests 75
-# pass 75
+# tests 88
+# pass 88
 # fail 0
-# duration_ms 2437
+# duration_ms 7730
 ```
 
 ## Manual verification performed
@@ -88,6 +101,9 @@ Full test output (abridged):
 | Viewer (read-only) access to all operational tabs | session as `hana.suzuki` | 200 on dashboard, calendar, capacity, pipeline, reporting, releases, enhancements, changelog |
 | Production build | `npm run build` | Compiled successfully, 14 routes |
 | Type safety | `npm run typecheck` | No errors |
+| HFM dry-run on the dev database | `npm run db:hfm-import` | No errors; 14 warnings (source artifacts), writes nothing |
+| HFM apply + verify on the dev database | `npm run db:hfm-import -- --apply` then `--verify` | 52/15/14 committed; `23 passed, 0 failed`; pre-apply backup in `data/backups/` |
+| HFM organisation after import | `loadOrg()` + scope inspection | Damien `department_admin` scoped to HFM IT QA (email NULL); Raheel `admin` reporting to Damien |
 | Serverless simulation (`VERCEL=1`, fresh `/tmp`) | `next start` + `/api/health` | 200: schema 35 tables, seed 12 people, `ephemeral: true` |
 | Read-only configured DB path (`DATABASE_FILE=/sys/qa/calendar.db`) | `next start` + `/api/health` | Warns, falls back to `/tmp/qa-calendar.db`, pages 200 |
 | Stateless session across instances | signed cookie with no `sessions` row | Dashboard 200; tampered cookie and no cookie both 307 → `/login` |

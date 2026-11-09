@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default async function LoginPage() {
   const session = await getSession();
-  if (session) redirect("/");
+  if (session) redirect("/calendar");
 
   const demoAccounts = all<{ email: string; name: string; role: string; title: string | null }>(
     `SELECT email, name, role, title FROM people WHERE is_demo = 1

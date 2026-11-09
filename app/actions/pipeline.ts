@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { get, run } from "@/lib/db";
-import { canEdit, getViewer } from "@/lib/access";
+import { canAdmin, canEdit, getViewer } from "@/lib/access";
 import { uid } from "@/lib/ids";
 import { inclusiveDays, isIsoDate } from "@/lib/dates";
 import { recordAudit } from "@/lib/audit";
@@ -38,7 +38,9 @@ export async function savePipelineAction(_prev: PipelineResult, formData: FormDa
     return { error: "Actual start cannot be after actual end." };
   }
 
-  const automation = Math.max(0, Math.min(100, Number(formData.get("automation_percent") ?? 0) || 0));
+  const automationRaw = String(formData.get("automation_percent") ?? "").trim();
+  // Blank automation stays NULL — never silently zero-filled (import fidelity).
+  const automation = automationRaw === "" ? null : Math.max(0, Math.min(100, Number(automationRaw) || 0));
   const payload = {
     code: text(formData, "code"),
     department_id: text(formData, "department_id"),
@@ -52,6 +54,7 @@ export async function savePipelineAction(_prev: PipelineResult, formData: FormDa
     recording_status: text(formData, "recording_status") ?? "Not started",
     current_status: text(formData, "current_status") ?? "Pending",
     automation_percent: automation,
+    automation_fraction: automation === null ? null : automation / 100,
     blocker: text(formData, "blocker"),
     colour: text(formData, "colour") ?? "#8b5cf6",
     assignee_id: text(formData, "assignee_id"),
@@ -70,7 +73,7 @@ export async function savePipelineAction(_prev: PipelineResult, formData: FormDa
     if (!before) return { error: "Recording no longer exists." };
     run(
       `UPDATE recording_pipeline SET code = ?, department_id = ?, activity = ?, detail = ?, planned_start = ?, planned_end = ?,
-         actual_start = ?, actual_end = ?, duration_days = ?, recording_status = ?, current_status = ?, automation_percent = ?,
+         actual_start = ?, actual_end = ?, duration_days = ?, recording_status = COALESCE(?, recording_status), current_status = ?, automation_percent = ?, automation_fraction = ?,
          blocker = ?, colour = ?, assignee_id = ?, is_test = ?, notes = ? WHERE id = ?`,
       payload.code,
       payload.department_id,
@@ -81,9 +84,10 @@ export async function savePipelineAction(_prev: PipelineResult, formData: FormDa
       payload.actual_start,
       payload.actual_end,
       payload.duration_days,
-      payload.recording_status,
+      text(formData, "recording_status"),
       payload.current_status,
       payload.automation_percent,
+      payload.automation_fraction,
       payload.blocker,
       payload.colour,
       payload.assignee_id,
@@ -106,8 +110,8 @@ export async function savePipelineAction(_prev: PipelineResult, formData: FormDa
     run(
       `INSERT INTO recording_pipeline
         (id, code, department_id, activity, detail, planned_start, planned_end, actual_start, actual_end, duration_days,
-         recording_status, current_status, automation_percent, blocker, colour, assignee_id, is_test, notes, source_sheet)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'app')`,
+         recording_status, current_status, automation_percent, automation_fraction, blocker, colour, assignee_id, is_test, notes, source_sheet)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'app')`,
       newId,
       payload.code ?? `REC-${seq}`,
       payload.department_id,
@@ -121,6 +125,7 @@ export async function savePipelineAction(_prev: PipelineResult, formData: FormDa
       payload.recording_status,
       payload.current_status,
       payload.automation_percent,
+      payload.automation_fraction,
       payload.blocker,
       payload.colour,
       payload.assignee_id,
@@ -207,15 +212,43 @@ export async function removeExclusionAction(formData: FormData): Promise<void> {
   revalidatePath("/");
 }
 
+/** Owner review action: confirm a TEST-labelled imported pipeline row as operational.
+ *  Reserved for application administrators — never granted by import itself. */
+export async function confirmPipelineVerificationAction(formData: FormData): Promise<void> {
+  const viewer = await getViewer();
+  if (!canAdmin(viewer)) return;
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+  const before = get<any>(`SELECT * FROM recording_pipeline WHERE id = ?`, id);
+  if (!before) return;
+  if (before.verification_status === "Confirmed operational") return;
+  run(`UPDATE recording_pipeline SET verification_status = 'Confirmed operational' WHERE id = ?`, id);
+  recordAudit({
+    actorId: viewer.person.id,
+    actorName: viewer.person.name,
+    action: "pipeline.verification_confirmed",
+    entity: "recording_pipeline",
+    entityId: id,
+    before: { verification_status: before.verification_status ?? null, is_test: before.is_test },
+    after: { verification_status: "Confirmed operational" },
+    meta: { external_source_id: before.external_source_id ?? null, note: "Owner confirmed a TEST-labelled source record as operational" },
+  });
+  revalidatePath(String(formData.get("path") ?? "/pipeline"));
+  revalidatePath("/");
+}
+
 export async function updateRecordingAction(formData: FormData): Promise<void> {
   const viewer = await getViewer();
   if (!canEdit(viewer)) return;
   const id = String(formData.get("id") ?? "");
-  const automation = Math.max(0, Math.min(100, Number(formData.get("automation_percent") ?? 0) || 0));
+  const automationRaw = String(formData.get("automation_percent") ?? "").trim();
+  // Blank automation stays NULL — never silently zero-filled (import fidelity).
+  const automation = automationRaw === "" ? null : Math.max(0, Math.min(100, Number(automationRaw) || 0));
   const status = String(formData.get("recording_status") ?? "");
   run(
-    `UPDATE recording_pipeline SET automation_percent = ?, recording_status = COALESCE(NULLIF(?, ''), recording_status) WHERE id = ?`,
+    `UPDATE recording_pipeline SET automation_percent = ?, automation_fraction = ?, recording_status = COALESCE(NULLIF(?, ''), recording_status) WHERE id = ?`,
     automation,
+    automation === null ? null : automation / 100,
     status,
     id
   );

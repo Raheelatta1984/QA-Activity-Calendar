@@ -139,14 +139,22 @@ export function migrate(db: DatabaseSync = getDb()): string[] {
   const ran: string[] = [];
   for (const { name: file, sql } of migrationSources()) {
     if (applied.has(file)) continue;
+    // Migrations may rebuild tables to relax constraints or reshape columns.
+    // Foreign-key enforcement is suspended for the duration of each migration
+    // transaction (SQLite ignores PRAGMA foreign_keys inside a transaction, so
+    // it must be set here, outside the BEGIN). Every migration recreates the
+    // tables it touches with the canonical name, so references stay valid.
+    db.exec("PRAGMA foreign_keys = OFF;");
     db.exec("BEGIN");
     try {
       db.exec(sql);
       db.prepare("INSERT INTO _migrations (name) VALUES (?)").run(file);
       db.exec("COMMIT");
+      db.exec("PRAGMA foreign_keys = ON;");
       ran.push(file);
     } catch (err) {
       db.exec("ROLLBACK");
+      db.exec("PRAGMA foreign_keys = ON;");
       throw new Error(`Migration ${file} failed: ${(err as Error).message}`);
     }
   }

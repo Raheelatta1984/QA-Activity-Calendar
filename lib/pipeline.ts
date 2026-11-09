@@ -1,6 +1,6 @@
 import { all, get } from "./db";
 import type { Viewer } from "./access";
-import { addDays, diffDays, eachDay, inclusiveDays, isIsoDate, isWorkingDay, isValidRange } from "./dates";
+import { addDays, diffDays, eachDay, inclusiveDays, isIsoDate, isWorkingDay, isValidRange, isWeekend } from "./dates";
 import { visibilitySql } from "./activities";
 
 export type PipelineView = {
@@ -33,6 +33,19 @@ export type PipelineView = {
   exclusions: { date: string; reason: string }[];
   warnings: string[];
   blocked_by_qa: { id: string; activity: string }[];
+  effective_duration_days: number | null;
+  weekdays_in_range: number;
+  blocked_auto_days: string[];
+  blocked_manual_days: string[];
+  duration_provisional: boolean;
+  holidays_applied: boolean;
+  verification_status: string | null;
+  source_duration_days: number | null;
+  excluded_priority_work_dates: string | null;
+  colour_label: string | null;
+  applications_raw: string | null;
+  activity_group: string | null;
+  source_test_label: number;
 };
 
 /** Later of planned/actual start; later of planned/actual end (source parity). */
@@ -58,6 +71,95 @@ export function holidayMap(): Map<string, string> {
   return new Map(rows.map((r) => [r.date, r.name]));
 }
 
+/**
+ * Effective pipeline duration (HFM workbook parity):
+ * the number of Monday–Friday dates inside the inclusive PLANNED start/end
+ * interval, minus the deduplicated union of
+ *   (a) automatic blocked days — overlapping ACTIVE master activities with a
+ *       valid inclusive range, unless the pipeline title equals that activity's
+ *       Activity or Activity Detail after trimming and case-insensitive
+ *       comparison (a matching activity does NOT negate an unrelated
+ *       conflicting activity on the same date), and
+ *   (b) manual exclusions for this pipeline (plus global exclusions).
+ * NSW public holidays are subtracted only when the local holiday configuration
+ * is marked verified via the 'holidays.verified' setting (the holiday table is
+ * runtime configuration, not supplied source data); otherwise the duration is
+ * labelled provisional and source 'Duration Days' is retained separately.
+ * Inactive or incomplete-date master rows never block.
+ */
+export type EffectiveDuration = {
+  weekdays: number;
+  blocked_auto_days: string[];
+  blocked_manual_days: string[];
+  blocked_union_days: string[];
+  effective_duration_days: number | null;
+  provisional: boolean;
+  holidays_applied: boolean;
+};
+
+const normTitle = (v: unknown) => (typeof v === "string" ? v.trim().toLowerCase() : "");
+
+export function computeEffectiveDuration(
+  item: { activity: string | null; planned_start: string | null; planned_end: string | null },
+  activeQa: { activity: string | null; detail: string | null; start_date: string | null; end_date: string | null }[],
+  manualDates: string[],
+  opts: { holidays?: Set<string> } = {}
+): EffectiveDuration {
+  const start = item.planned_start;
+  const end = item.planned_end;
+  if (!isValidRange(start, end)) {
+    return {
+      weekdays: 0,
+      blocked_auto_days: [],
+      blocked_manual_days: [...new Set(manualDates)].sort(),
+      blocked_union_days: [...new Set(manualDates)].sort(),
+      effective_duration_days: null,
+      provisional: true,
+      holidays_applied: false,
+    };
+  }
+  const title = normTitle(item.activity);
+  const days = eachDay(start!, end!);
+  const holidaysApplied = !!opts.holidays && opts.holidays.size > 0;
+  const holidays = opts.holidays ?? new Set<string>();
+  const weekdaySet = new Set(days.filter((d) => !isWeekend(d) && !(holidaysApplied && holidays.has(d))));
+
+  const blockedAuto = new Set<string>();
+  for (const day of weekdaySet) {
+    const conflicts = activeQa.filter((a) =>
+      a.start_date! <= day && a.end_date! >= day &&
+      normTitle(a.activity) !== title && normTitle(a.detail) !== title
+    );
+    if (conflicts.length) blockedAuto.add(day);
+  }
+  const blockedManual = new Set(manualDates.filter((d) => isIsoDate(d)));
+  const union = new Set([...blockedAuto, ...blockedManual]);
+  const duration = [...weekdaySet].filter((d) => !union.has(d)).length;
+  return {
+    weekdays: weekdaySet.size,
+    blocked_auto_days: [...blockedAuto].sort(),
+    blocked_manual_days: [...blockedManual].sort(),
+    blocked_union_days: [...union].sort(),
+    effective_duration_days: duration,
+    provisional: !holidaysApplied,
+    holidays_applied: holidaysApplied,
+  };
+}
+
+/** Org-wide ACTIVE master activities with a valid inclusive range (date blocking). */
+function activeBlockingActivities() {
+  return all<{ activity: string | null; detail: string | null; start_date: string | null; end_date: string | null }>(
+    `SELECT activity, detail, start_date, end_date FROM activities
+      WHERE active = 1 AND start_date IS NOT NULL AND end_date IS NOT NULL AND start_date <= end_date`
+  );
+}
+
+export function verifiedHolidays(): Set<string> | null {
+  const row = get<{ value: string }>(`SELECT value FROM settings WHERE key = 'holidays.verified'`);
+  if (row?.value !== "true") return null;
+  return new Set(all<{ date: string }>(`SELECT date FROM holidays`).map((r) => r.date));
+}
+
 export function listExclusions() {
   return all<{ id: string; pipeline_id: string | null; date: string; reason: string; created_at: string; created_by: string | null }>(
     `SELECT e.*, p.name AS created_by_name FROM pipeline_exclusions e
@@ -71,6 +173,8 @@ export function listPipeline(viewer: Viewer): PipelineView[] {
   const exclusions = all<{ id: string; pipeline_id: string | null; date: string; reason: string }>(
     `SELECT id, pipeline_id, date, reason FROM pipeline_exclusions`
   );
+  const blockingQaOrgWide = activeBlockingActivities();
+  const verifiedHolidaySet = verifiedHolidays();
   const activeQa = all<{ id: string; activity: string; start_date: string; end_date: string; assignee_id: string | null; department_id: string | null }>(
     `SELECT id, activity, start_date, end_date, assignee_id, department_id FROM activities
       WHERE active = 1 AND start_date IS NOT NULL AND end_date IS NOT NULL`
@@ -97,6 +201,13 @@ export function listPipeline(viewer: Viewer): PipelineView[] {
           .map((e) => [e.date, e])
       ).values(),
     ];
+
+    const effDuration = computeEffectiveDuration(
+      { activity: item.activity, planned_start: item.planned_start, planned_end: item.planned_end },
+      blockingQaOrgWide,
+      allExclusions.map((e) => e.date),
+      { holidays: verifiedHolidaySet ?? undefined }
+    );
 
     const days = eff.start && eff.end ? eachDay(eff.start, eff.end) : [];
     const blockedDates: string[] = [];
@@ -141,6 +252,19 @@ export function listPipeline(viewer: Viewer): PipelineView[] {
       exclusions: allExclusions.map((e) => ({ date: e.date, reason: e.reason })),
       warnings,
       blocked_by_qa: [...blockedByQa.values()],
+      effective_duration_days: effDuration.effective_duration_days,
+      weekdays_in_range: effDuration.weekdays,
+      blocked_auto_days: effDuration.blocked_auto_days,
+      blocked_manual_days: effDuration.blocked_manual_days,
+      duration_provisional: effDuration.provisional,
+      holidays_applied: effDuration.holidays_applied,
+      verification_status: item.verification_status ?? null,
+      source_duration_days: item.source_duration_days ?? null,
+      excluded_priority_work_dates: item.excluded_priority_work_dates ?? null,
+      colour_label: item.colour_label ?? null,
+      applications_raw: item.applications_raw ?? null,
+      activity_group: item.activity_group ?? null,
+      source_test_label: item.source_test_label ?? 0,
     } as PipelineView;
   });
 }
@@ -182,8 +306,9 @@ export function pipelineStats(items: PipelineView[]) {
   const complete = operational.filter(
     (i) => i.recording_status === "Complete" || i.recording_status === "Recorded" || i.current_status === "Complete"
   ).length;
-  const avgAutomation = operational.length
-    ? Math.round(operational.reduce((s, i) => s + i.automation_percent, 0) / operational.length)
+  const automationKnown = operational.filter((i) => i.automation_percent !== null && i.automation_percent !== undefined);
+  const avgAutomation = automationKnown.length
+    ? Math.round(automationKnown.reduce((s, i) => s + (i.automation_percent as number), 0) / automationKnown.length)
     : 0;
   return {
     total: operational.length,
