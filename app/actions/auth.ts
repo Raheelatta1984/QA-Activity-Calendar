@@ -34,7 +34,7 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
   await setSessionCookie({ sessionId: session.id, personId: person.id, expires: session.expires });
   recordAudit({ actorId: person.id, actorName: person.name, action: "auth.login", entity: "person", entityId: person.id });
   await setLoginWelcomeCookie({ sessionId: session.id, personId: person.id, expires: session.expires });
-  redirect("/");
+  redirect("/calendar"); // HFM default landing: the QA calendar, scoped to HFM IT QA
 }
 
 export async function logoutAction() {
@@ -64,17 +64,18 @@ export async function switchPersonaAction(formData: FormData) {
   if (!session) redirect("/login");
   const viewer = await getViewer();
   const org = loadOrg();
-  const target = org.byId.get(personId);
+  const target = personId ? org.byId.get(personId) : null;
+  const actingScope = viewer.person.role === "department_admin" ? (viewer.person.role_scope_department_id ?? null) : null;
   const allowed =
     !personId ||
     personId === viewer.person.id ||
     viewer.person.role === "admin" ||
     viewer.person.role === "exec" ||
-    (viewer.person.role === "manager" && descendantsOf(org.people, viewer.person.id).has(personId));
+    (viewer.person.role === "manager" && descendantsOf(org.people, viewer.person.id).has(personId)) ||
+    (actingScope !== null && target?.department_id === actingScope);
 
-  if (!allowed || !target) {
-    return;
-  }
+  if (!allowed) return;
+  if (personId && !target) return;
   await setImpersonation(personId || null);
   recordAudit({
     actorId: viewer.person.id,

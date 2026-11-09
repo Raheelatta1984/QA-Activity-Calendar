@@ -376,11 +376,13 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 .badge-red { background: rgba(248,113,113,0.14); color: #f87171; border-color: rgba(248,113,113,0.3); }
 .badge-purple { background: rgba(167,139,250,0.15); color: #b7a6ff; border-color: rgba(167,139,250,0.3); }
 .badge-slate { background: var(--surface-3); color: var(--muted); border-color: var(--border); }
+.badge-orange { background: rgba(251,146,60,0.15); color: #fdba74; border-color: rgba(251,146,60,0.32); }
 html[data-theme="light"] .badge-blue { color: #1d4ed8; }
 html[data-theme="light"] .badge-green { color: #047857; }
 html[data-theme="light"] .badge-amber { color: #a16207; }
 html[data-theme="light"] .badge-red { color: #b91c1c; }
 html[data-theme="light"] .badge-purple { color: #6d28d9; }
+html[data-theme="light"] .badge-orange { color: #c2410c; }
 
 /* --------------------------------------------------------------- KPIs ----- */
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }

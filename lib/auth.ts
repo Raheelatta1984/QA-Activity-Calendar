@@ -23,7 +23,8 @@ export type Person = {
   name: string;
   email: string;
   title: string | null;
-  role: "admin" | "exec" | "manager" | "editor" | "viewer";
+  role: "admin" | "exec" | "manager" | "department_admin" | "editor" | "viewer";
+  role_scope_department_id?: string | null;
   capacity_hours_day: number;
   colour: string;
   active: number;

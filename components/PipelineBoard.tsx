@@ -7,6 +7,7 @@ import {
   savePipelineAction,
   deletePipelineAction,
   updateRecordingAction,
+  confirmPipelineVerificationAction,
   type PipelineResult,
 } from "@/app/actions/pipeline";
 
@@ -20,6 +21,7 @@ export function PipelineBoard({
   canEdit,
   path,
   availability,
+  canConfirm = false,
 }: {
   items: ClientPipeline[];
   people: ClientPerson[];
@@ -27,6 +29,7 @@ export function PipelineBoard({
   canEdit: boolean;
   path: string;
   availability: DayMeta[];
+  canConfirm?: boolean;
 }) {
   const [filter, setFilter] = useState<"all" | "actionable" | "blocked" | "test">("all");
   const [owner, setOwner] = useState("all");
@@ -77,6 +80,11 @@ export function PipelineBoard({
                 <div className="row" style={{ gap: 6 }}>
                   <strong style={{ fontSize: "0.9rem" }}>{item.activity}</strong>
                   {item.is_test ? <span className="badge badge-amber">TEST</span> : null}
+                  {item.verification_status === "Needs operational confirmation" ? (
+                    <span className="badge badge-orange" title="TEST-labelled source record awaiting owner confirmation">Needs confirmation</span>
+                  ) : item.verification_status === "Confirmed operational" ? (
+                    <span className="badge badge-green">Confirmed operational</span>
+                  ) : null}
                 </div>
                 <div className="card-sub">
                   <span className="mono">{item.code}</span> · {item.assignee_name}
@@ -114,13 +122,29 @@ export function PipelineBoard({
                   ) : null}
                 </span>
               </div>
+              <div className="row-between" style={{ fontSize: "0.78rem", marginTop: 4 }}>
+                <span className="muted" title="Monday–Friday dates in the planned window minus the deduplicated union of automatic QA-overlap days and manual exclusions. Provisional while the NSW holiday configuration is unverified.">
+                  Effective duration (Mon–Fri){item.duration_provisional ? " · provisional" : ""}
+                </span>
+                <span>
+                  <strong>{item.effective_duration_days ?? "—"}</strong>
+                  {item.blocked_auto_days.length || item.blocked_manual_days.length ? (
+                    <span className="badge badge-amber" style={{ marginLeft: 6 }} title={`auto-blocked: ${item.blocked_auto_days.join(", ") || "none"} · manual: ${item.blocked_manual_days.join(", ") || "none"}`}>
+                      {item.blocked_auto_days.length} auto · {item.blocked_manual_days.length} manual
+                    </span>
+                  ) : null}
+                  {item.source_duration_days !== null && item.source_duration_days !== undefined ? (
+                    <span className="muted" style={{ marginLeft: 6 }} title="Source workbook snapshot (Duration Days)">src {item.source_duration_days}</span>
+                  ) : null}
+                </span>
+              </div>
               <div style={{ marginTop: 8 }}>
                 <div className="row-between" style={{ fontSize: "0.72rem", marginBottom: 3 }}>
                   <span className="muted">Automation</span>
-                  <span>{item.automation_percent}%</span>
+                  <span>{item.automation_percent === null || item.automation_percent === undefined ? "unknown" : `${item.automation_percent}%`}</span>
                 </div>
-                <div className={`progress ${item.automation_percent >= 80 ? "good" : item.automation_percent < 30 ? "warn" : ""}`}>
-                  <span style={{ width: `${Math.max(2, item.automation_percent)}%` }} />
+                <div className={`progress ${(item.automation_percent ?? 0) >= 80 ? "good" : (item.automation_percent ?? 0) < 30 ? "warn" : ""}`}>
+                  <span style={{ width: `${Math.max(2, item.automation_percent ?? 0)}%` }} />
                 </div>
               </div>
 
@@ -139,6 +163,15 @@ export function PipelineBoard({
               ) : null}
 
               <div className="row" style={{ marginTop: 10 }}>
+                {canConfirm && item.verification_status === "Needs operational confirmation" ? (
+                  <form action={confirmPipelineVerificationAction} title="Mark this TEST-labelled source record as operational (audited)">
+                    <input type="hidden" name="id" value={item.id} />
+                    <input type="hidden" name="path" value={path} />
+                    <button className="btn btn-sm btn-primary" type="submit">
+                      Confirm operational
+                    </button>
+                  </form>
+                ) : null}
                 {canEdit ? (
                   <>
                     <button className="btn btn-sm" onClick={() => setEditing(item)}>
@@ -153,7 +186,7 @@ export function PipelineBoard({
                         min={0}
                         max={100}
                         name="automation_percent"
-                        defaultValue={item.automation_percent}
+                        defaultValue={item.automation_percent ?? ""}
                         style={{ width: 70 }}
                         aria-label="Automation percent"
                       />
@@ -265,7 +298,10 @@ function PipelineForm({
               </div>
               <div className="field">
                 <label>Recording status</label>
-                <select className="select" name="recording_status" defaultValue={item?.recording_status ?? "Not started"}>
+                <select className="select" name="recording_status" defaultValue={item && (item.recording_status === null || item.recording_status === undefined) ? "" : item?.recording_status ?? "Not started"}>
+                  {item && (item.recording_status === null || item.recording_status === undefined) ? (
+                    <option value="">(blank — not supplied)</option>
+                  ) : null}
                   {RECORDING_STATUSES.map((s) => (
                     <option key={s}>{s}</option>
                   ))}
@@ -303,7 +339,7 @@ function PipelineForm({
               </div>
               <div className="field">
                 <label>Automation %</label>
-                <input className="input" type="number" min={0} max={100} name="automation_percent" defaultValue={item?.automation_percent ?? 0} />
+                <input className="input" type="number" min={0} max={100} name="automation_percent" defaultValue={item?.automation_percent ?? ""} placeholder="unknown" />
               </div>
               <div className="field">
                 <label>Colour</label>

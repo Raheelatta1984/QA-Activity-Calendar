@@ -1,4 +1,4 @@
-import { getViewer, canEdit } from "@/lib/access";
+import { getViewer, canAdmin, canEdit } from "@/lib/access";
 import { all } from "@/lib/db";
 import { availabilityWindow, holidayMap, listExclusions, listPipeline, pipelineStats } from "@/lib/pipeline";
 import { addDays, addMonths, isoToday, monthLabel, monthStart } from "@/lib/dates";
@@ -155,6 +155,7 @@ export default async function PipelinePage() {
           canEdit={canEdit(viewer)}
           path="/pipeline"
           availability={availability}
+          canConfirm={canAdmin(viewer)}
         />
       </Section>
 
