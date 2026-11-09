@@ -56,7 +56,7 @@ printf 'a-long-password\n' | npm run db:set-password -- --email ratta@harrisfarm
 | Capacity | `tab.capacity` | Resource × day grid with inline hours, occupied vs productive utilisation, monthly pivot, FTE demand chart |
 | Reporting | `tab.reporting` | Bug ledger linked to activities and services, derived status, progress bars, service matrix |
 | Releases | `tab.releases` | Release feed, PQU trains with flags, audited go/no-go governance, deployment formula parity |
-| Future Enhancements | `tab.enhancements` | Live AI-drafted proposals (every field suggested, always editable), markdown vault in the repo, stage flow, handover documents panel and archive |
+| Future Enhancements | `tab.enhancements` | Live AI-drafted proposals (every field suggested, always editable), markdown vault in the repo, stage flow, handover documents panel and archive, plus a **two-way GitHub bridge** to any repository |
 | Data Quality | `tab.validation` | Rule catalogue + idempotent validation queue + audit trail |
 | Import Centre | `tab.imports` | Dry-run reconciliation, idempotent apply, row provenance |
 | Master Setup | `tab.setup` | Company, departments, drag-and-drop hierarchy, employees, tab/section toggles, holidays, defaults |
@@ -66,6 +66,35 @@ Every tab and section renders its **stable ID** (`tab.*` / `sec.*`) next to the 
 
 ### AI guidance, everywhere
 Each tab and section carries an editable sticky note at the top of the section. Notes are seeded with operational guidance, can be re-drafted from live data ("AI draft"), and are stored with author and timestamp. The AI engine is local and deterministic: no operational data leaves the server (see [DECISIONS #12](./docs/DECISIONS.md)).
+
+### Two-way GitHub bridge (v2)
+The Future Enhancements vault and a GitHub repository now run the *same*
+backlog. Work can start in either place:
+
+- **Push to GitHub** opens one issue per proposal (labelled
+  `future-enhancement` and `status:<stage>`) and updates it afterwards.
+- **Pull from GitHub** imports issues carrying the import label as proposals and
+  refreshes the ones already linked, including their linked pull requests.
+- **Sync both ways** is the default and runs pull *then* push, so an edit made on
+  GitHub is never overwritten by an older local copy.
+
+The rules are explicit: progress never moves backwards (the furthest-along stage
+wins), `Rejected` is terminal, an issue closed on GitHub archives the proposal,
+an archived proposal closes its issue, and a write is only sent when something
+actually differs — so the scheduled sync is safe to run unattended. Every run is
+journalled in-app and audited.
+
+`sec.enhancements.github` shows the configuration, the linked issues and their
+PRs, and the recent runs; `sec.enhancements.portability` lists exactly which
+files to copy to reuse the module — the repository is configuration
+(`GITHUB_ENHANCEMENTS_REPO`), not code, so one deployment can manage several
+projects. Full guide: [docs/ENHANCEMENTS-GITHUB-BRIDGE.md](./docs/ENHANCEMENTS-GITHUB-BRIDGE.md).
+
+```bash
+# optional unattended sync (also runs from .github/workflows/enhancement-github-sync.yml)
+export APP_URL=https://your-deployment ENHANCEMENT_SYNC_SECRET=...
+npm run enhancement:github-sync
+```
 
 ### Live AI drafting in the enhancement studio
 While you type “what needs to change?”, the studio drafts **options** — never a single fixed answer — for the outcome you want, the impacted tab/section IDs, title, brief, requirements, impacts, expected outcome, success criteria and the markdown handover. Each field offers two or three candidates you can accept, re-roll or ignore. The moment you type in a field it becomes yours: suggestions never overwrite an edit, and auto-drafting can be switched off entirely. Which fields were accepted from the assistant is stored on the proposal (`enhancements.ai_fields`) and written into the markdown front matter, so a reviewer can always tell machine-drafted text from the author's own words.

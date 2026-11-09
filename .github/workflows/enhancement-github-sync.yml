@@ -1,0 +1,77 @@
+name: Enhancement GitHub bridge sync
+
+# Keeps the deployed Future Enhancements vault and the GitHub issues in step,
+# without a human pressing a button.
+#
+#   * schedule          — every 30 minutes, pull then push.
+#   * issue events      — immediately after an issue is opened, edited, labelled
+#                         or closed in this repository.
+#   * workflow_dispatch — run it by hand, optionally one direction only.
+#
+# The workflow never talks to GitHub's API itself. The deployed app owns the
+# enhancement database and the token, so this calls
+# `POST /api/enhancements/sync` with the shared secret. Configure:
+#
+#   repository variable  APP_URL                 https://<your-deployment>
+#   repository secret    ENHANCEMENT_SYNC_SECRET the same value as the deployment
+#
+# With either missing the workflow exits with a clear notice and does nothing,
+# so a repository that has not opted in is never left with a red run.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  issues:
+    types: [opened, edited, labeled, unlabeled, closed, reopened]
+  workflow_dispatch:
+    inputs:
+      direction:
+        description: Which way to synchronise
+        type: choice
+        required: true
+        default: full
+        options:
+          - full
+          - pull
+          - push
+
+permissions:
+  contents: read
+  issues: read
+
+concurrency:
+  group: enhancement-github-bridge
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check configuration
+        id: config
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          SECRET: ${{ secrets.ENHANCEMENT_SYNC_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$SECRET" ]; then
+            echo "::notice title=Bridge sync skipped::Set the APP_URL repository variable and the ENHANCEMENT_SYNC_SECRET secret to enable the unattended two-way sync."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.config.outputs.enabled == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.config.outputs.enabled == 'true'
+        with:
+          node-version: 22
+
+      - name: Run the two-way sync
+        if: steps.config.outputs.enabled == 'true'
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          ENHANCEMENT_SYNC_SECRET: ${{ secrets.ENHANCEMENT_SYNC_SECRET }}
+          SYNC_DIRECTION: ${{ github.event.inputs.direction || 'full' }}
+        run: node scripts/enhancement-github-sync.mjs
