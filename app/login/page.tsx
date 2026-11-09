@@ -1,20 +1,21 @@
 import { redirect } from "next/navigation";
-import { all } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { listLoginAccounts } from "@/lib/org";
 import { LoginForm } from "@/components/LoginForm";
 import { Icon } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
-export default async function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ company?: string; entity?: string }>;
+}) {
   const session = await getSession();
   if (session) redirect("/calendar");
 
-  const demoAccounts = all<{ email: string; name: string; role: string; title: string | null }>(
-    `SELECT email, name, role, title FROM people WHERE is_demo = 1
-      ORDER BY CASE role WHEN 'admin' THEN 1 WHEN 'exec' THEN 2 WHEN 'manager' THEN 3 WHEN 'editor' THEN 4 ELSE 5 END, name
-      LIMIT 8`
-  );
+  const params = await searchParams;
+  const scope = listLoginAccounts(params.company ?? null, params.entity ?? null);
 
   return (
     <div className="login-wrap">
@@ -53,7 +54,7 @@ export default async function LoginPage() {
       </section>
 
       <section className="login-panel">
-        <LoginForm demoAccounts={demoAccounts} />
+        <LoginForm scope={scope} />
       </section>
     </div>
   );

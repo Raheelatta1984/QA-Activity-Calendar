@@ -2,6 +2,13 @@
 
 All notable changes to this project are recorded here and, for in-app users, in the **What's new** tab (`/changelog`, backed by the `changelog` table). Format: version — date — summary.
 
+## 1.4.1 — 2026-11-09 — Entity-aware login and full company visibility
+
+- **Login screen**: opens on the default company with a company → entity picker; the sign-in roster is scoped to the selected workspace. Demo identities offer one-click fill (`demo1234`); imported principals are listed with a `credentials not set` badge until an administrator sets a password — nothing is invented.
+- **Master Setup → Companies & entities** (`sec.setup.company`, stable ID unchanged): every company shown with aliases, code, default badge and entity/department/people/activity counts, entities listed beneath; admins can switch the default company (audited `company.set_default`). Departments table gains an **Entity** column.
+- Department-less people remain discoverable in the oldest company only; unknown company/entity params fall back safely; the default never grants cross-company access.
+- New `lib/org.ts` shared by login and setup; `tests/org.test.mts` (7 cases) — **95 tests total**, typecheck and build clean.
+
 ## 1.4.0 — 2026-11-09 — HFM source snapshot imported and reconciled
 
 The HarrisFarm Markets QA workbook snapshot (extract 2026-11-09) is now seeded and verified end to end.

@@ -35,7 +35,11 @@ npm run db:hfm-import -- --verify  # 23 read-only acceptance checks
 
 It seeds the HFM org (HarrisFarm Markets → Harrisfarm → `HFM IT QA`), Damien Milthorpe (`department_admin`, **no email/password until an operator sets one**), Raheel Atta (`admin`, manager: Damien), 52 master activities (41 Active / 11 Inactive), 15 pending pipeline rows (TEST labels kept verbatim, flagged `Needs operational confirmation`) and 14 manual exclusions. Re-apply is idempotent; department moves survive re-import; `--rollback <import_batch_id>` reverses an import without touching the organisation or demo data. Full operator guide: [docs/HFM-IMPORT.md](./docs/HFM-IMPORT.md).
 
-Demo identities (local only, password `demo1234`) are unchanged — the imported HFM people have **no** passwords. Give one a login with:
+Demo identities (local only, password `demo1234`) are unchanged — the imported HFM people have **no** passwords.
+
+The login screen opens on the default company with a **company → entity picker**; the sign-in roster is scoped to the selected workspace (demo identities offer one-click fill, imported principals show a `credentials not set` badge). Master Setup → **Companies & entities** shows every company with live counts and lets an administrator switch the default (audited).
+
+Give someone a login with:
 
 ```bash
 printf 'a-long-password\n' | npm run db:set-password -- --email ratta@harrisfarm.com.au --password-stdin

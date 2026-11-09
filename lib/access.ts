@@ -29,6 +29,7 @@ export type Company = {
   legal_name: string | null;
   timezone: string;
   fiscal_start_month: number;
+  is_default?: number;
 };
 
 export type Org = {
@@ -70,6 +71,7 @@ export function loadOrg(): Org {
       legal_name: null,
       timezone: "Australia/Sydney",
       fiscal_start_month: 7,
+      is_default: 0,
     };
   const departments = all<Department>("SELECT * FROM departments ORDER BY sort_order, name");
   const people = all<Person>("SELECT * FROM people ORDER BY name");

@@ -22,6 +22,16 @@ npm run db:set-password -- --email ratta@harrisfarm.com.au --password-stdin
 
 Dry-run is the default. `--apply` creates a consistent backup under `data/backups/` before writing anything, records an `import_batches` row and imports inside a single transaction.
 
+## After import: sign-in scope
+
+The login screen opens on the **default company** (HarrisFarm Markets after the import) with a company → entity picker; the roster lists exactly that workspace. Damien and Raheel appear with a **credentials not set** badge — the import never invents logins. Set one with:
+
+```bash
+printf 'a-long-password\n' | npm run db:set-password -- --email ratta@harrisfarm.com.au --password-stdin
+```
+
+Master Setup → **Companies & entities** lists every company (this one, the demo tenant, any other) with live counts and lets an administrator switch the default (audited `company.set_default`). Switching the default never widens access — it only chooses the workspace shown first.
+
 ## What gets created
 
 | Entity | Source | Count |
