@@ -190,7 +190,7 @@ export const TAB_CATALOGUE: TabSeed[] = [
     min_role: "manager",
     sort: 100,
     sections: [
-      { id: "sec.setup.company", label: "Company entity", description: "Legal entity, timezone and fiscal year start." },
+      { id: "sec.setup.company", label: "Companies & entities", description: "All companies and entities, the default workspace, legal name, timezone and fiscal year start." },
       { id: "sec.setup.departments", label: "Departments", description: "Enable or disable departments without deleting data." },
       { id: "sec.setup.hierarchy", label: "Organisation hierarchy", description: "Drag-and-drop reporting lines with visibility rules." },
       { id: "sec.setup.people", label: "Employees", description: "Roles, capacity and department assignment." },
@@ -309,6 +309,24 @@ export const CHANGELOG_ENTRIES: Array<{
       "In-app status is reconciled from the committed documents on bootstrap and from the vault, then confirmed on /api/health as enhancementDocSync",
       "Generated reconciliation reports live in the gitignored .tmp/ directory; the approved handover record stays in Git as the source of truth",
       "Calendar filters, FTE demand, release governance and role scoping are unchanged",
+    ],
+    pr: null,
+  },
+  {
+    version: "1.4.1",
+    title: "Entity-aware login and full company visibility",
+    offset: 0,
+    type: "feature",
+    summary:
+      "The login screen now opens on the default company with a company → entity picker and an account roster scoped to the selected workspace; Master Setup shows every company and entity with live counts instead of only the default one.",
+    items: [
+      "Login: company and entity chips (with department/people counts) scope the sign-in roster; 'All entities' shows the whole company",
+      "Demo identities offer one-click fill with the shared demo password; imported principals are listed with a 'credentials not set' badge until an administrator sets one — the import never invents logins",
+      "Master Setup shows every company with aliases, code, default badge, entity/department/people/activity counts and the entity rows beneath; administrators can switch the default company (audited company.set_default)",
+      "Departments table gains an Entity column (— when a department sits directly under the company)",
+      "sec.setup.company relabelled 'Companies & entities'; stable ID unchanged",
+      "Department-less people stay discoverable in the oldest company only (never duplicated across tenants, never leaked into another tenant)",
+      "New lib/org.ts + setDefaultCompany (atomic flag flip); 7 new org/login-scope tests — 95 total",
     ],
     pr: null,
   },
@@ -443,7 +461,7 @@ export const AI_NOTES: Record<string, string> = {
   "sec.reporting.services":
     "AI guidance · One bug ID across two services counts once overall and once per service. The derived badge only closes when every service link is closed.",
   "sec.setup.company":
-    "AI guidance · Company timezone and fiscal start drive every date calculation. Change them deliberately — historical labels are not recalculated.",
+    "AI guidance · The default company drives which company renders first and which scope the login screen opens on — it never grants cross-company access. Company timezone and fiscal start drive every date calculation; change them deliberately.",
   "sec.setup.holidays":
     "AI guidance · Supply NSW public holidays from the approved source. Holidays are configuration, never fetched or invented, and feed capacity, FTE and pipeline logic.",
   "sec.setup.people":

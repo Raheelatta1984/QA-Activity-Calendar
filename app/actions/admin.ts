@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { all, get, run, setSetting } from "@/lib/db";
 import { canAdmin, canManagePeople, getViewer, loadOrg, descendantsOf, scopedDepartmentId } from "@/lib/access";
+import { setDefaultCompany } from "@/lib/org";
 import { hashPassword } from "@/lib/auth";
 import { uid } from "@/lib/ids";
 import { isIsoDate, isoToday } from "@/lib/dates";
@@ -87,6 +88,34 @@ export async function saveDepartmentAction(formData: FormData): Promise<void> {
     entity: "department",
     entityId: id || null,
     after: { name, code },
+  });
+  revalidateAll();
+}
+
+/** Make `id` the default company (drives loadOrg + the login scope). Admin-only, audited. */
+export async function setDefaultCompanyAction(formData: FormData): Promise<void> {
+  const viewer = await getViewer();
+  if (!canAdmin(viewer)) return;
+  const id = value(formData, "id");
+  if (!id) return;
+  const target = get<{ id: string; name: string }>("SELECT id, name FROM companies WHERE id = ?", id);
+  if (!target) return;
+  if (viewer.org.company.id === id && viewer.org.company.is_default) return; // already default
+  const before = get<{ value: string }>("SELECT value FROM settings WHERE key = 'default_company_id'")?.value ?? null;
+  try {
+    setDefaultCompany(id);
+  } catch {
+    return;
+  }
+  recordAudit({
+    actorId: viewer.person.id,
+    actorName: viewer.person.name,
+    action: "company.set_default",
+    entity: "company",
+    entityId: id,
+    before: { default_company_id: before },
+    after: { default_company_id: id },
+    meta: { name: target.name },
   });
   revalidateAll();
 }

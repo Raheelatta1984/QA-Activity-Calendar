@@ -2,7 +2,7 @@
 
 Run with `npm test` (Node's built-in test runner via `tsx`). The integration suite runs against an isolated temporary database, so it never touches your working data.
 
-**Last run:** 9 Nov 2026 · Node 22.x · `88 tests, 88 pass, 0 fail` · `npm run typecheck` clean · `npm run build` succeeded · HFM acceptance verification `23 passed, 0 failed` on the local demo database.
+**Last run:** 9 Nov 2026 · Node 22.x · `95 tests, 95 pass, 0 fail` · `npm run typecheck` clean · `npm run build` succeeded · HFM acceptance verification `23 passed, 0 failed` on the local demo database.
 
 ## Automated suites
 
@@ -73,14 +73,21 @@ Run with `npm test` (Node's built-in test runner via `tsx`). The integration sui
 | 63 | effective duration subtracts union of auto overlaps + manual exclusions | Weekday arithmetic; union dedup; holiday gate; incomplete range → NULL |
 | 64 | department-scoped administrators isolated to their own department | `scopeFor` / `canAdminDepartment` / `canManageDepartment` |
 | 65 | rollback removes only imported snapshot; org + demo data survive | Rollback scoping |
+| 66 | companies list shows both tenants, HFM company defaults and sorts first | Multi-tenant visibility |
+| 67 | entities listed per company; demo tenant reports none | Entity roll-up counts |
+| 68 | default login scope lists only the default company's people; imported principals flagged credential-less | Login roster scoping; nothing invented |
+| 69 | entity-scoped login lists exactly the entity roster | Entity picker |
+| 70 | demo tenant scope lists demo identities plus the department-less exec | Dept-less attach to oldest company |
+| 71 | setDefaultCompany flips the flag atomically, audits settings, rejects unknown ids | `company.set_default` administration |
+| 72 | unknown company/entity params fall back safely; foreign entity cannot be forced | Scope fallback rules |
 
 Full test output (abridged):
 
 ```
-# tests 88
-# pass 88
+# tests 95
+# pass 95
 # fail 0
-# duration_ms 7730
+# duration_ms 5169
 ```
 
 ## Manual verification performed
@@ -104,6 +111,8 @@ Full test output (abridged):
 | HFM dry-run on the dev database | `npm run db:hfm-import` | No errors; 14 warnings (source artifacts), writes nothing |
 | HFM apply + verify on the dev database | `npm run db:hfm-import -- --apply` then `--verify` | 52/15/14 committed; `23 passed, 0 failed`; pre-apply backup in `data/backups/` |
 | HFM organisation after import | `loadOrg()` + scope inspection | Damien `department_admin` scoped to HFM IT QA (email NULL); Raheel `admin` reporting to Damien |
+| Login scope (default/entity/demo/other) | Browser + scoped roster queries | Default opens on HarrisFarm Markets (Damien + Raheel, credential-less badge); entity URL lists only the entity; demo tenant shows 12 demo identities; cross-tenant entity rejected |
+| Master Setup companies & entities block | `GET /setup` as admin | Both companies with aliases/counts, entity sub-row (Harrisfarm: 1 dept, 2 people), audited Make-default button |
 | Serverless simulation (`VERCEL=1`, fresh `/tmp`) | `next start` + `/api/health` | 200: schema 35 tables, seed 12 people, `ephemeral: true` |
 | Read-only configured DB path (`DATABASE_FILE=/sys/qa/calendar.db`) | `next start` + `/api/health` | Warns, falls back to `/tmp/qa-calendar.db`, pages 200 |
 | Stateless session across instances | signed cookie with no `sessions` row | Dashboard 200; tampered cookie and no cookie both 307 → `/login` |

@@ -729,6 +729,17 @@ html[data-theme="light"] .badge-orange { color: #c2410c; }
 }
 .demo-account:hover { background: var(--hover); border-color: var(--border); }
 .sso-note { font-size: 0.7rem; color: var(--muted); margin-top: 10px; }
+.login-scope { border: 1px solid var(--border); border-radius: 10px; padding: 10px 10px 8px; margin-bottom: 12px; background: var(--surface-2); }
+.scope-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.scope-chip { display: flex; flex-direction: column; gap: 1px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); text-decoration: none; color: var(--text-dim); font-size: 0.76rem; max-width: 220px; }
+.scope-chip .strong { font-weight: 600; color: var(--text); }
+.scope-chip .muted { font-size: 0.68rem; }
+.scope-chip:hover { border-color: var(--border-strong, var(--border)); background: var(--hover); }
+.scope-chip.active { border-color: var(--accent, #4f8cff); background: rgba(79,140,255,0.12); box-shadow: inset 0 0 0 1px var(--accent, #4f8cff); }
+.scope-chip.active .strong { color: var(--text); }
+.demo-account[disabled] { opacity: 0.62; cursor: default; }
+.demo-account-disabled:hover { background: transparent; }
+.avatar-dot { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 999px; background: var(--surface-3); color: var(--text-dim); font-size: 0.62rem; font-weight: 700; flex: none; }
 
 .page-foot { margin-top: 30px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 0.72rem; color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; justify-content: space-between; }
 

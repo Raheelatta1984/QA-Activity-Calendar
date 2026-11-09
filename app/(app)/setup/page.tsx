@@ -1,5 +1,7 @@
+import { Fragment } from "react";
 import { getViewer, canAdmin } from "@/lib/access";
 import { all, setting } from "@/lib/db";
+import { listCompanies, listEntities } from "@/lib/org";
 import { appSettings } from "@/lib/settings";
 import { Section } from "@/components/Section";
 import { PageHeader, PageGuidance } from "@/components/PageHeader";
@@ -10,6 +12,7 @@ import { Icon } from "@/components/icons";
 import {
   saveDepartmentAction,
   toggleDepartmentAction,
+  setDefaultCompanyAction,
   toggleTabAction,
   toggleSectionAction,
   saveHolidayAction,
@@ -26,6 +29,12 @@ export default async function SetupPage() {
   const org = viewer.org;
 
   const departments = all<any>(`SELECT * FROM departments ORDER BY sort_order, name`);
+  const entities = listEntities();
+  const companies = listCompanies();
+  const entitiesByCompany = new Map<string, typeof entities>(
+    companies.map((c) => [c.id, entities.filter((e) => e.company_id === c.id)])
+  );
+  const entityName = (id: string | null) => entities.find((e) => e.id === id)?.name ?? null;
   const people = all<any>(`SELECT * FROM people ORDER BY name`);
   const tabs = all<any>(`SELECT * FROM tabs ORDER BY sort_order`);
   const sections = all<any>(`SELECT * FROM sections ORDER BY sort_order`);
@@ -59,7 +68,7 @@ export default async function SetupPage() {
         description="Company entity, departments, organisation hierarchy, employees, tab configuration, holidays and calculation defaults. Every control here is live — no separate admin deployment."
         meta={
           <>
-            {departments.length} departments ({enabledDepartments} enabled) · {people.length} people · {activeTabs}/
+            {companies.length} {companies.length === 1 ? "company" : "companies"} · {entities.length} {entities.length === 1 ? "entity" : "entities"} · {departments.length} departments ({enabledDepartments} enabled) · {people.length} people · {activeTabs}/
             {tabs.length} tabs enabled · fiscal start month {settings.fiscalStartMonth}
           </>
         }
@@ -103,6 +112,84 @@ export default async function SetupPage() {
             <div className="stat-line"><span className="muted">Fiscal start</span><span>Month {org.company.fiscal_start_month}</span></div>
           </div>
         )}
+
+        <div className="card-pad stack" style={{ marginTop: 12 }}>
+          <div className="label">All companies &amp; entities</div>
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Company</th>
+                  <th>Code</th>
+                  <th>Default</th>
+                  <th className="num">Entities</th>
+                  <th className="num">Departments</th>
+                  <th className="num">People</th>
+                  <th className="num">Activities</th>
+                  {admin ? <th /> : null}
+                </tr>
+              </thead>
+              <tbody>
+                {companies.map((company) => (
+                  <Fragment key={company.id}>
+                    <tr>
+                      <td>
+                        <strong>{company.name}</strong>
+                        {company.aliases ? (
+                          <div className="muted" style={{ fontSize: "0.72rem" }}>also known as {(() => { try { return JSON.parse(company.aliases!).join(", "); } catch { return company.aliases; } })()}</div>
+                        ) : null}
+                      </td>
+                      <td className="mono">{company.code ?? "—"}</td>
+                      <td>
+                        {company.is_default ? (
+                          <span className="badge badge-green">default</span>
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
+                      </td>
+                      <td className="num">{company.entity_count}</td>
+                      <td className="num">{company.department_count}</td>
+                      <td className="num">{company.person_count}</td>
+                      <td className="num">{company.activity_count}</td>
+                      {admin ? (
+                        <td className="right">
+                          {!company.is_default ? (
+                            <form action={setDefaultCompanyAction}>
+                              <input type="hidden" name="id" value={company.id} />
+                              <button className="btn btn-sm btn-ghost" type="submit" title="Make this the company shown by default and at login">
+                                Make default
+                              </button>
+                            </form>
+                          ) : (
+                            <span className="muted" style={{ fontSize: "0.75rem" }}>active at login</span>
+                          )}
+                        </td>
+                      ) : null}
+                    </tr>
+                    {(entitiesByCompany.get(company.id) ?? []).map((entity) => (
+                      <tr key={entity.id} style={{ background: "var(--surface-2)" }}>
+                        <td style={{ paddingLeft: 28 }}>
+                          <Icon name="layers" size={12} /> {entity.name}
+                        </td>
+                        <td className="mono">{entity.code ?? "—"}</td>
+                        <td className="muted">entity</td>
+                        <td className="num muted">—</td>
+                        <td className="num">{entity.department_count}</td>
+                        <td className="num">{entity.person_count}</td>
+                        <td className="num muted">—</td>
+                        {admin ? <td /> : null}
+                      </tr>
+                    ))}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="card-sub">
+            The default company drives which company renders first and which scope the login screen opens on. It never
+            grants cross-company access. Departments link to an entity when one exists; otherwise they sit directly under the company.
+          </div>
+        </div>
       </Section>
 
       <Section
@@ -120,6 +207,7 @@ export default async function SetupPage() {
                 <tr>
                   <th>Code</th>
                   <th>Name</th>
+                  <th>Entity</th>
                   <th>Description</th>
                   <th>Colour</th>
                   <th className="num">People</th>
@@ -133,6 +221,7 @@ export default async function SetupPage() {
                   <tr key={department.id}>
                     <td className="mono">{department.code}</td>
                     <td><strong>{department.name}</strong></td>
+                    <td className="muted">{entityName(department.entity_id) ?? "—"}</td>
                     <td className="muted">{department.description ?? "—"}</td>
                     <td>
                       <span className="legend-swatch" style={{ background: department.colour }} />

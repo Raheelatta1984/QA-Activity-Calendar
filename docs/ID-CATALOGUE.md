@@ -109,7 +109,7 @@ them for a new surface; add a new row instead.
 
 | Section ID | Label | Enabled | Description |
 | --- | --- | --- | --- |
-| `sec.setup.company` | Company entity | yes | Legal entity, timezone and fiscal year start. |
+| `sec.setup.company` | Companies & entities | yes | All companies and entities, the default workspace, legal name, timezone and fiscal year start. |
 | `sec.setup.departments` | Departments | yes | Enable or disable departments without deleting data. |
 | `sec.setup.hierarchy` | Organisation hierarchy | yes | Drag-and-drop reporting lines with visibility rules. |
 | `sec.setup.people` | Employees | yes | Roles, capacity and department assignment. |
