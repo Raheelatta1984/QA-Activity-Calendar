@@ -238,6 +238,19 @@ export const CHANGELOG_ENTRIES: Array<{
   pr: number | null;
 }> = [
   {
+    version: "2.0.1",
+    title: "What's New entries link to their pull request",
+    offset: 0,
+    type: "fix",
+    summary:
+      "Release notes now record the pull request that shipped them, including releases that were seeded before their PR was opened.",
+    items: [
+      "v2.0.0 now shows its PR (#23) in the What's New feed",
+      "A missing PR reference on a seeded release is backfilled on the next catalogue pass; existing editorial links are never overwritten",
+    ],
+    pr: 24,
+  },
+  {
     version: "2.0.0",
     title: "Separate tenants, multi-department scope and project names",
     offset: 0,
