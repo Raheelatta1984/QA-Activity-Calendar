@@ -17,7 +17,7 @@ for (const suffix of ["", "-wal", "-shm"]) {
   }
 }
 
-const { bootstrapDatabase } = await import("../lib/seed");
+const { bootstrapDatabase, ensureCatalogue } = await import("../lib/seed");
 const { all, get, run } = await import("../lib/db");
 const { runImport, parseSourceDate } = await import("../lib/import");
 const { detectIssues } = await import("../lib/validation");
@@ -77,6 +77,21 @@ test("What's New records the one-time login welcome and its landing tab", () => 
   assert.match(entry.title, /login welcome/i);
   assert.match(entry.summary, /two seconds/i);
   assert.match(entry.items, /tab\.dashboard/);
+});
+
+test("What's New links each release to its PR and backfills missing links", () => {
+  const entry = get<{ pr_number: number | null }>(
+    `SELECT pr_number FROM changelog WHERE version = '2.0.0'`
+  );
+  assert.equal(entry?.pr_number, 23);
+  // Existing installations seeded before the PR was opened get the link on
+  // the next catalogue pass, without an administrator editing the row.
+  run(`UPDATE changelog SET pr_number = NULL WHERE version = '2.0.0'`);
+  ensureCatalogue();
+  assert.equal(
+    get<{ pr_number: number | null }>(`SELECT pr_number FROM changelog WHERE version = '2.0.0'`)?.pr_number,
+    23
+  );
 });
 
 test("management view sees more than an individual contributor", () => {
