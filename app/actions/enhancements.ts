@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { all, get, run } from "@/lib/db";
-import { canEdit, getViewer } from "@/lib/access";
+import { canEdit, departmentInCompany, getViewer, tenantId } from "@/lib/access";
 import { uid } from "@/lib/ids";
 import { recordAudit } from "@/lib/audit";
 import { draftEnhancement, suggestEnhancementFields, type EnhancementDraft, type EnhancementSuggestions } from "@/lib/ai";
@@ -106,6 +106,13 @@ export async function saveEnhancementAction(_prev: EnhancementState, formData: F
 
   const id = String(formData.get("id") ?? "") || uid("enh");
   const existing = get<any>(`SELECT * FROM enhancements WHERE id = ?`, id);
+  if (existing && existing.company_id && existing.company_id !== tenantId(viewer)) {
+    return { error: "That enhancement belongs to another company." };
+  }
+  const departmentId = String(formData.get("department_id") ?? "") || null;
+  if (departmentId && !departmentInCompany(viewer, departmentId)) {
+    return { error: "That department belongs to another company." };
+  }
   const ref = existing?.ref ?? nextRef();
   const rawMarkdown = String(formData.get("markdown") ?? "").trim();
   // Fields the author accepted from the assistant (provenance, not authorship).
@@ -122,7 +129,7 @@ export async function saveEnhancementAction(_prev: EnhancementState, formData: F
     impacts: String(formData.get("impacts") ?? "").trim() || null,
     expected_outcome: String(formData.get("expected_outcome") ?? "").trim() || null,
     success_criteria: String(formData.get("success_criteria") ?? "").trim() || null,
-    department_id: String(formData.get("department_id") ?? "") || null,
+    department_id: departmentId,
     status: String(formData.get("status") ?? "Submitted"),
   };
 
@@ -180,11 +187,12 @@ export async function saveEnhancementAction(_prev: EnhancementState, formData: F
     });
   } else {
     run(
-      `INSERT INTO enhancements (id, ref, title, brief, requirements, impacts, expected_outcome, success_criteria, markdown,
+      `INSERT INTO enhancements (id, ref, company_id, title, brief, requirements, impacts, expected_outcome, success_criteria, markdown,
          status, github_path, submitted_by, department_id, ai_title, ai_model, ai_fields, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
       id,
       ref,
+      viewer.org.company.id,
       payload.title,
       payload.brief,
       payload.requirements,
@@ -194,7 +202,7 @@ export async function saveEnhancementAction(_prev: EnhancementState, formData: F
       markdown,
       payload.status,
       relativePath,
-      viewer.person.id,
+      viewer.actingAs.id,
       payload.department_id,
       String(formData.get("ai_title") ?? "") || null,
       String(formData.get("ai_model") ?? "") || null,
@@ -230,7 +238,9 @@ export async function setEnhancementStatusAction(_prev: { error?: string; ok?: b
       WHERE e.id = ?`,
     id
   );
-  if (!existing) return { error: "Enhancement not found on this instance. Refresh and try again." };
+  if (!existing || (existing.company_id && existing.company_id !== tenantId(viewer))) {
+    return { error: "Enhancement not found on this instance. Refresh and try again." };
+  }
 
   if (status === "Building" || status === "Built") {
     // Building publishes the approved handover; Built left the file in place but
@@ -303,7 +313,7 @@ export async function deleteEnhancementAction(formData: FormData): Promise<void>
   if (!canEdit(viewer)) return;
   const id = String(formData.get("id") ?? "");
   const existing = get<any>(`SELECT * FROM enhancements WHERE id = ?`, id);
-  if (!existing) return;
+  if (!existing || (existing.company_id && existing.company_id !== tenantId(viewer))) return;
   removeVaultMarkdown(existing.github_path);
   run(`DELETE FROM enhancements WHERE id = ?`, id);
   recordAudit({
@@ -329,7 +339,7 @@ export async function regenerateMarkdownAction(formData: FormData): Promise<void
       WHERE e.id = ?`,
     id
   );
-  if (!item) return;
+  if (!item || (item.company_id && item.company_id !== tenantId(viewer))) return;
 
   let aiFields: string[] = [];
   if (item.ai_fields) {

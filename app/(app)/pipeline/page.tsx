@@ -17,12 +17,14 @@ export default async function PipelinePage() {
   const monthKey = today.slice(0, 7);
   const items = listPipeline(viewer);
   const stats = pipelineStats(items);
-  const exclusions = listExclusions();
+  const exclusions = listExclusions(viewer);
   const weekStart = addDays(today, -((new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7));
   const weekEnd = addDays(weekStart, 6);
   const availability = availabilityWindow(
     monthStart(monthKey),
-    addMonths(monthStart(monthKey), 1)
+    addMonths(monthStart(monthKey), 1),
+    undefined,
+    viewer.org.company.id
   ).map((day) => ({
     date: day.date,
     day: Number(day.date.slice(8)),

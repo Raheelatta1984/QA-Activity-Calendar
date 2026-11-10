@@ -7,6 +7,8 @@ export function toClientActivity(a: ActivityView): ClientActivity {
   return {
     id: a.id,
     code: a.code,
+    project_name: a.project_name,
+    copy_batch_id: a.copy_batch_id ?? null,
     activity: a.activity,
     detail: a.detail,
     group: a.activity_group,
@@ -73,6 +75,8 @@ export function toClientPipeline(p: PipelineView): ClientPipeline {
     blocked_days: p.blocked_days,
     warnings: p.warnings,
     notes: p.notes,
+    copy_batch_id: p.copy_batch_id ?? null,
+    source_dataset: p.source_dataset ?? null,
   };
 }
 

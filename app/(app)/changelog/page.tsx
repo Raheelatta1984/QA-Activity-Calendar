@@ -26,7 +26,10 @@ export default async function ChangelogPage() {
   const entries = all<any>(`SELECT * FROM changelog WHERE published = 1 ORDER BY date DESC, created_at DESC, id DESC`);
   const migrations = all<{ name: string; applied_at: string }>(`SELECT * FROM _migrations ORDER BY name`);
   const tableTotal = tableCount();
-  const audit = all<any>(`SELECT * FROM audit_events ORDER BY at DESC LIMIT 10`);
+  const audit = all<any>(
+    `SELECT * FROM audit_events WHERE company_id = ? ORDER BY at DESC LIMIT 10`,
+    viewer.org.company.id
+  );
   const demoRows = all<{ n: number }>(
     `SELECT (SELECT COUNT(*) FROM activities WHERE is_demo = 1) + (SELECT COUNT(*) FROM bugs WHERE is_demo = 1) AS n`
   )[0]?.n ?? 0;

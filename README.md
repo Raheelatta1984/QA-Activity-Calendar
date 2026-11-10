@@ -45,13 +45,31 @@ The HarrisFarm Markets QA workbook snapshot (2026-11-09) ships embedded in this 
 npm run db:hfm-import              # dry-run — writes nothing
 npm run db:hfm-import -- --apply   # commit (automatic backup first)
 npm run db:hfm-import -- --verify  # 23 read-only acceptance checks
+npm run db:provision              # create/reconcile the separate HFM2 tenant
+npm run db:inject-tenant          # preview the HFM → HFM2 copy
+npm run db:inject-tenant -- --apply --confirm COPY   # create a reversible copy batch
+npm run db:inject-tenant -- --delete <batch-id> --confirm DELETE
 ```
 
-It seeds the HFM org (HarrisFarm Markets → Harrisfarm → `HFM IT QA`), Damien Milthorpe (`department_admin`, **no email/password until an operator sets one**), Raheel Atta (`admin`, manager: Damien), 52 master activities (41 Active / 11 Inactive), 15 pending pipeline rows (TEST labels kept verbatim, flagged `Needs operational confirmation`) and 14 manual exclusions. Re-apply is idempotent; department moves survive re-import; `--rollback <import_batch_id>` reverses an import without touching the organisation or demo data. Full operator guide: [docs/HFM-IMPORT.md](./docs/HFM-IMPORT.md).
+It seeds the demo workspace and the HFM org (HarrisFarm Markets → Harrisfarm → `HFM IT QA`), Damien Milthorpe (`department_admin`, **no email/password until an operator sets one**), Raheel Atta (`admin`, manager: Damien), 52 master activities (41 Active / 11 Inactive), 15 pending pipeline rows (TEST labels kept verbatim, flagged `Needs operational confirmation`) and 14 manual exclusions. Re-apply is idempotent; department moves survive re-import; `--rollback <import_batch_id>` reverses an import without touching the organisation or demo data. Full operator guide: [docs/HFM-IMPORT.md](./docs/HFM-IMPORT.md). After the import, provisioning reconciles the separate **HFM2** tenant and links Damien/Raheel's existing identities to their tenant-local copies without changing the HFM rows or issuing credentials.
 
 Demo identities (local only, password `demo1234`) are unchanged — the imported HFM people have **no** passwords.
 
-The login screen opens on the default company with a **company → entity picker**; the sign-in roster is scoped to the selected workspace (demo identities offer one-click fill, imported principals show a `credentials not set` badge). Master Setup → **Companies & entities** shows every company with live counts and lets an administrator switch the default (audited).
+The login screen opens on the default company with a **company → entity picker**; the sign-in roster is scoped to the selected workspace (demo identities offer one-click fill, imported principals show a `credentials not set` badge, and linked tenant identities offer their HFM account email). Master Setup → **Companies & entities** shows the companies you may access with live counts and lets an administrator switch the default (audited).
+
+### Separate Harrisfarm Markets tenant (HFM2)
+
+A second, deliberately separate company — **Harrisfarm Markets**, code `HFM2` — lives beside `HarrisFarm Markets` (`HFM`). It has its own entity and four departments (QA, Release Management, Test Automation, Data Services). Damien Milthorpe (`department_admin`) and Raheel Atta (`admin`) have tenant-local people rows whose `email` and password are `NULL` and whose `linked_person_id` points at the HFM account; no address is invented and no credential is copied. An authorised HFM login can switch to HFM2 from the header or the login screen.
+
+Master Setup → **Tenant data** previews exactly which HFM rows would be copied (activities, pipeline, releases, defects, capacity and related children), then copies them on an explicit `COPY` confirmation. Each copy is assigned to the target tenant's Raheel Atta, carries `copy_batch_id`, `copied_from_id` and `source_dataset = injected:<HFM id>`, and is labelled **Copied** in the calendar and pipeline. Re-running while a batch is active writes nothing. Deleting a batch requires typing `DELETE`, removes only rows tagged with that batch inside HFM2, and leaves every HFM row unchanged; a fresh copy can then be created.
+
+### Multi-department scope
+
+The header department switcher accepts **one, several or all** authorised departments. Selecting several unions their people and work; an empty selection means every department the role may see. The server validates every submitted department id against the signed-in account's scope, so a hand-edited request cannot widen the view. Company, entity and department cookies are cleared or revalidated whenever the company changes.
+
+### Project names
+
+Activities accept an optional **project name** (`activities.project_name`). It appears above the activity name on calendar chips and in the drawer, in the dashboard's upcoming list, in reporting activity labels, in search, and through the import aliases `Project`, `Project Name` and `Project Title`. Legacy and HFM-imported rows stay blank rather than guessing a project.
 
 Give someone a login with:
 
@@ -73,7 +91,7 @@ printf 'a-long-password\n' | npm run db:set-password -- --email ratta@harrisfarm
 | Future Enhancements | `tab.enhancements` | Live AI-drafted proposals (every field suggested, always editable), markdown vault in the repo, stage flow, handover documents panel and archive, plus a **two-way GitHub bridge** to any repository |
 | Data Quality | `tab.validation` | Rule catalogue + idempotent validation queue + audit trail |
 | Import Centre | `tab.imports` | Dry-run reconciliation, idempotent apply, row provenance |
-| Master Setup | `tab.setup` | Company, departments, drag-and-drop hierarchy, employees, tab/section toggles, holidays, defaults |
+| Master Setup | `tab.setup` | Companies, tenant provisioning/copy batches, departments, drag-and-drop hierarchy, employees, tab/section toggles, holidays, defaults |
 | What's New | `tab.changelog` | Release/PR notes recorded in-product, build information |
 
 Every tab and section renders its **stable ID** (`tab.*` / `sec.*`) next to the heading so future requests can name an exact surface. The full catalogue is generated into [`docs/ID-CATALOGUE.md`](./docs/ID-CATALOGUE.md) by `npm run catalogue`.
@@ -169,7 +187,7 @@ app/                 Next.js App Router (pages, server actions, API route)
 components/          Client + server UI primitives
 lib/                 Domain logic: dates, capacity, pipeline, release FTE, access, AI, import, validation
 lib/database/        Driver facade: SQLite (node:sqlite), Postgres (pg + worker bridge), SQL dialect, generated PG schema
-db/migrations/       001…005 SQL migrations (40 tables, provenance, audit, release planning)
+db/migrations/       001…007 SQL migrations (40 tables, tenancy, provenance, audit, release planning, note scoping)
 scripts/             migrate, seed, reset, backup, import CLI, catalogue, automation
 .github/workflows/   CI, handover intake, PR coordination, merge completion
 tests/               node:test unit + integration + automation suites

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { get, run } from "@/lib/db";
-import { canEdit, getViewer } from "@/lib/access";
+import { canEdit, departmentInCompany, getViewer, personInCompany, tenantId } from "@/lib/access";
 import { uid } from "@/lib/ids";
 import { inclusiveDays, isIsoDate } from "@/lib/dates";
 import { recordAudit } from "@/lib/audit";
@@ -66,6 +66,7 @@ export async function saveActivityAction(_prev: ActionResult, formData: FormData
 
   const payload = {
     code: optional(formData, "code"),
+    project_name: optional(formData, "project_name"),
     department_id: optional(formData, "department_id"),
     activity,
     detail: optional(formData, "detail"),
@@ -90,18 +91,30 @@ export async function saveActivityAction(_prev: ActionResult, formData: FormData
   };
 
   const path = String(formData.get("path") ?? "/calendar");
+  const companyId = tenantId(viewer);
+
+  if (payload.department_id && !departmentInCompany(viewer, payload.department_id)) {
+    return { error: "That department is outside your tenant or authorised scope." };
+  }
+  if (payload.assignee_id && !personInCompany(viewer, payload.assignee_id)) {
+    return { error: "That assignee is outside your tenant or authorised scope." };
+  }
 
   try {
     if (id) {
       const before = get<any>("SELECT * FROM activities WHERE id = ?", id);
       if (!before) return { error: "Activity no longer exists." };
+      if (before.company_id && before.company_id !== companyId) {
+        return { error: "That activity belongs to another company." };
+      }
       run(
-        `UPDATE activities SET code = ?, department_id = ?, activity = ?, detail = ?, activity_group = ?, rule_type = ?,
+        `UPDATE activities SET code = ?, project_name = ?, department_id = ?, activity = ?, detail = ?, activity_group = ?, rule_type = ?,
            active = ?, start_date = ?, end_date = ?, duration_days = ?, fte = ?, fte_override = ?, colour = ?,
            assignee_id = ?, status = ?, notes = ?, planned_start = ?, planned_end = ?, actual_start = ?, actual_end = ?,
            progress_percent = ?, priority = ?, updated_at = datetime('now')
          WHERE id = ?`,
         payload.code,
+        payload.project_name,
         payload.department_id,
         payload.activity,
         payload.detail,
@@ -131,22 +144,39 @@ export async function saveActivityAction(_prev: ActionResult, formData: FormData
         action: "activity.update",
         entity: "activity",
         entityId: id,
-        before: { activity: before.activity, start: before.start_date, end: before.end_date, fte: before.fte },
-        after: { activity: payload.activity, start: payload.start_date, end: payload.end_date, fte: payload.fte },
+        before: {
+          activity: before.activity,
+          project_name: before.project_name,
+          start: before.start_date,
+          end: before.end_date,
+          fte: before.fte,
+        },
+        after: {
+          activity: payload.activity,
+          project_name: payload.project_name,
+          start: payload.start_date,
+          end: payload.end_date,
+          fte: payload.fte,
+        },
       });
     } else {
       const newId = uid("act");
       const nextSeq =
-        (get<{ n: number }>("SELECT COUNT(*) AS n FROM activities")?.n ?? 1) + 1001;
+        (get<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM activities WHERE company_id = ?",
+          companyId
+        )?.n ?? 1) + 1001;
       run(
         `INSERT INTO activities
-          (id, code, department_id, activity, detail, activity_group, rule_type, active, start_date, end_date, duration_days,
+          (id, code, company_id, department_id, project_name, activity, detail, activity_group, rule_type, active, start_date, end_date, duration_days,
            fte, fte_override, colour, assignee_id, status, notes, calendar_item_id, planned_start, planned_end,
            actual_start, actual_end, progress_percent, priority, source_sheet, source_row, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'app', NULL, datetime('now'), datetime('now'))`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'app', NULL, datetime('now'), datetime('now'))`,
         newId,
         payload.code ?? `CI-${nextSeq}`,
+        companyId,
         payload.department_id,
+        payload.project_name,
         payload.activity,
         payload.detail,
         payload.activity_group,
@@ -191,7 +221,7 @@ export async function deleteActivityAction(formData: FormData): Promise<void> {
   if (!canEdit(viewer)) return;
   const id = String(formData.get("id") ?? "");
   const before = get<any>("SELECT * FROM activities WHERE id = ?", id);
-  if (!before) return;
+  if (!before || (before.company_id && before.company_id !== tenantId(viewer))) return;
   run("DELETE FROM activities WHERE id = ?", id);
   recordAudit({
     actorId: viewer.person.id,
@@ -210,7 +240,7 @@ export async function recordActualAction(formData: FormData): Promise<void> {
   if (!canEdit(viewer)) return;
   const id = String(formData.get("id") ?? "");
   const activity = get<any>("SELECT * FROM activities WHERE id = ?", id);
-  if (!activity) return;
+  if (!activity || (activity.company_id && activity.company_id !== tenantId(viewer))) return;
   const today = String(formData.get("date") ?? "");
   const which = String(formData.get("which") ?? "start");
   if (which === "start") {
@@ -244,6 +274,8 @@ export async function updateProgressAction(formData: FormData): Promise<void> {
   const id = String(formData.get("id") ?? "");
   const progress = Math.max(0, Math.min(100, Number(formData.get("progress") ?? 0)));
   const status = String(formData.get("status") ?? "");
+  const target = get<{ company_id: string | null }>("SELECT company_id FROM activities WHERE id = ?", id);
+  if (!target || (target.company_id && target.company_id !== tenantId(viewer))) return;
   run(
     `UPDATE activities SET progress_percent = ?, status = COALESCE(NULLIF(?, ''), status), updated_at = datetime('now') WHERE id = ?`,
     progress,
@@ -279,8 +311,8 @@ export async function toggleActivityActiveAction(formData: FormData): Promise<vo
   const viewer = await getViewer();
   if (!canEdit(viewer)) return;
   const id = String(formData.get("id") ?? "");
-  const before = get<any>("SELECT active, activity FROM activities WHERE id = ?", id);
-  if (!before) return;
+  const before = get<any>("SELECT active, activity, company_id FROM activities WHERE id = ?", id);
+  if (!before || (before.company_id && before.company_id !== tenantId(viewer))) return;
   run(`UPDATE activities SET active = 1 - active, updated_at = datetime('now') WHERE id = ?`, id);
   recordAudit({
     actorId: viewer.person.id,

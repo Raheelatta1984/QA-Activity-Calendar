@@ -64,9 +64,10 @@ function createRelease(options: {
 }) {
   const id = uid("rf");
   run(
-    `INSERT INTO release_feed (id, version, kind, date, notes, link, link_verified, department_id, qa_start_date, qa_end_date)
-     VALUES (?, ?, 'Self Update', ?, NULL, NULL, 0, 'dept_rel', ?, ?)`,
+    `INSERT INTO release_feed (id, company_id, version, kind, date, notes, link, link_verified, department_id, qa_start_date, qa_end_date)
+     VALUES (?, ?, ?, 'Self Update', ?, NULL, NULL, 0, 'dept_rel', ?, ?)`,
     id,
+    loadOrg().company.id,
     options.version,
     options.date ?? null,
     options.from ?? null,

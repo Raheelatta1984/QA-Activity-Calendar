@@ -1,11 +1,13 @@
 import { Fragment } from "react";
 import { getViewer, canAdmin } from "@/lib/access";
+import { defaultSourceCompanyId, defaultTargetCompanyId, listInjectionBatches, previewTenantInjection } from "@/lib/tenant-injection";
 import { all, setting } from "@/lib/db";
 import { listCompanies, listEntities } from "@/lib/org";
 import { appSettings } from "@/lib/settings";
 import { Section } from "@/components/Section";
 import { PageHeader, PageGuidance } from "@/components/PageHeader";
 import { CompanyForm } from "@/components/SetupForms";
+import { TenantDataPanel } from "@/components/TenantDataPanel";
 import { PeoplePanel } from "@/components/PeoplePanel";
 import { OrgTree } from "@/components/OrgTree";
 import { Icon } from "@/components/icons";
@@ -28,22 +30,41 @@ export default async function SetupPage() {
   const settings = appSettings();
   const org = viewer.org;
 
-  const departments = all<any>(`SELECT * FROM departments ORDER BY sort_order, name`);
-  const entities = listEntities();
-  const companies = listCompanies();
-  const entitiesByCompany = new Map<string, typeof entities>(
-    companies.map((c) => [c.id, entities.filter((e) => e.company_id === c.id)])
+  // Everything below is scoped to the selected tenant. The all-companies table
+  // is a deliberate administrative summary (admin-only controls), never a data
+  // query for another company's records.
+  const departments = org.departments;
+  const allEntityRows = listEntities();
+  const entities = allEntityRows.filter((entity) => entity.company_id === org.company.id);
+  const allCompanies = listCompanies();
+  const permittedCompanyIds = new Set(viewer.companies.map((company) => company.id));
+  const companies = admin
+    ? allCompanies
+    : allCompanies.filter((company) => permittedCompanyIds.has(company.id));
+  const entitiesByCompany = new Map<string, typeof allEntityRows>(
+    companies.map((c) => [c.id, allEntityRows.filter((e) => e.company_id === c.id)])
   );
-  const entityName = (id: string | null) => entities.find((e) => e.id === id)?.name ?? null;
-  const people = all<any>(`SELECT * FROM people ORDER BY name`);
+  const entityName = (id: string | null | undefined) => allEntityRows.find((e) => e.id === id)?.name ?? null;
+  const people = org.people;
+  const tenantPreview = previewTenantInjection({
+    sourceCompanyId: defaultSourceCompanyId(),
+    targetCompanyId: defaultTargetCompanyId(),
+  });
+  const injections = listInjectionBatches(defaultTargetCompanyId());
   const tabs = all<any>(`SELECT * FROM tabs ORDER BY sort_order`);
   const sections = all<any>(`SELECT * FROM sections ORDER BY sort_order`);
   const holidays = all<any>(`SELECT * FROM holidays ORDER BY date DESC LIMIT 40`);
   const colourRules = all<any>(`SELECT * FROM colour_rules ORDER BY name`);
   const noteCounts = all<{ section_id: string | null; tab_id: string; n: number }>(
-    `SELECT tab_id, section_id, COUNT(*) AS n FROM sticky_notes GROUP BY tab_id, section_id`
+    `SELECT tab_id, section_id, COUNT(*) AS n FROM sticky_notes
+      WHERE company_id = ? OR ai_generated = 1
+      GROUP BY tab_id, section_id`,
+    org.company.id
   );
-  const audit = all<any>(`SELECT * FROM audit_events ORDER BY at DESC LIMIT 8`);
+  const audit = all<any>(
+    `SELECT * FROM audit_events WHERE company_id = ? ORDER BY at DESC LIMIT 8`,
+    org.company.id
+  );
 
   const departmentName = (id: string | null) => departments.find((d) => d.id === id)?.name ?? null;
   const treeNodes = people.map((person) => ({
@@ -193,6 +214,31 @@ export default async function SetupPage() {
       </Section>
 
       <Section
+        id="sec.setup.tenants"
+        tabId="tab.setup"
+        title="Tenant data — Harrisfarm Markets"
+        description="A separate company (code HFM2) with its own entity and departments. Copy HFM's activities, releases, pipeline and related data into it, clearly tagged and reversible; delete only the copies, never the originals."
+        path="/setup"
+        canEdit={admin}
+        bare
+      >
+        {admin ? <TenantDataPanel
+          canAdmin={admin}
+          source={tenantPreview.source ? { id: tenantPreview.source.id, name: tenantPreview.source.name } : null}
+          target={tenantPreview.target ? { id: tenantPreview.target.id, name: tenantPreview.target.name } : null}
+          tables={tenantPreview.tables}
+          batches={injections.map((batch) => ({
+            id: batch.id,
+            label: batch.label,
+            status: batch.status,
+            counts: batch.counts as unknown as Record<string, number>,
+            created_at: batch.created_at,
+          }))}
+          targetPeople={tenantPreview.targetPeople}
+        /> : null}
+      </Section>
+
+      <Section
         id="sec.setup.departments"
         tabId="tab.setup"
         title="Departments"
@@ -255,6 +301,15 @@ export default async function SetupPage() {
                 <Icon name="plus" size={13} /> Add a department
               </summary>
               <form action={saveDepartmentAction} className="form-grid" style={{ marginTop: 12 }}>
+                <div className="field">
+                  <label>Entity</label>
+                  <select className="select select-sm" name="entityId" defaultValue={entities[0]?.id ?? ""}>
+                    <option value="">— company (no entity)</option>
+                    {entities.map((entity) => (
+                      <option key={entity.id} value={entity.id}>{entity.name}</option>
+                    ))}
+                  </select>
+                </div>
                 <div className="field">
                   <label>Name</label>
                   <input className="input input-sm" name="name" required placeholder="Data Engineering" />

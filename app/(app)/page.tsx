@@ -36,7 +36,7 @@ export default async function DashboardPage() {
   const bugs = listBugs(viewer);
   const totals = bugTotals(bugs);
   const insights = dashboardInsights(viewer, monthKey);
-  const issues = validationSummary();
+  const issues = validationSummary(viewer.org.company.id);
   const trend = capacityTrend(viewer, 4);
   const ai = aiStatus();
 
@@ -337,6 +337,7 @@ export default async function DashboardPage() {
                       {a.activity}
                     </div>
                     <div className="card-sub">
+                      {a.project_name ? <span>{a.project_name} · </span> : null}
                       {a.assignee_name} · {a.department_name}
                     </div>
                   </div>

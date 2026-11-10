@@ -18,8 +18,10 @@ export async function saveNoteAction(formData: FormData) {
   const title = String(formData.get("title") ?? "AI guidance").trim() || "AI guidance";
   if (!content) return;
 
+  const companyId = viewer.org.company.id;
   if (id) {
     const before = get<any>("SELECT * FROM sticky_notes WHERE id = ?", id);
+    if (!before || (before.company_id && before.company_id !== companyId)) return;
     run(`UPDATE sticky_notes SET content = ?, title = ?, updated_at = datetime('now') WHERE id = ?`, content, title, id);
     recordAudit({
       actorId: viewer.person.id,
@@ -33,14 +35,15 @@ export async function saveNoteAction(formData: FormData) {
   } else {
     const noteId = uid("note");
     run(
-      `INSERT INTO sticky_notes (id, tab_id, section_id, title, content, colour, author_id, updated_at)
-       VALUES (?, ?, ?, ?, ?, '#eef2ff', ?, datetime('now'))`,
+      `INSERT INTO sticky_notes (id, company_id, tab_id, section_id, title, content, colour, author_id, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, '#eef2ff', ?, datetime('now'))`,
       noteId,
+      companyId,
       tabId || null,
       sectionId || null,
       title,
       content,
-      viewer.person.id
+      viewer.actingAs.id
     );
     recordAudit({
       actorId: viewer.person.id,
@@ -59,7 +62,8 @@ export async function deleteNoteAction(formData: FormData) {
   if (!canEdit(viewer)) return;
   const id = String(formData.get("id") ?? "");
   const path = String(formData.get("path") ?? "/");
-  const before = get<any>("SELECT content FROM sticky_notes WHERE id = ?", id);
+  const before = get<any>("SELECT content, company_id FROM sticky_notes WHERE id = ?", id);
+  if (!before || (before.company_id && before.company_id !== viewer.org.company.id)) return;
   run(`DELETE FROM sticky_notes WHERE id = ?`, id);
   recordAudit({
     actorId: viewer.person.id,
@@ -81,6 +85,8 @@ export async function togglePinnedNoteAction(formData: FormData) {
   const viewer = await getViewer();
   if (!canEdit(viewer)) return;
   const id = String(formData.get("id") ?? "");
+  const note = get<{ company_id: string | null }>("SELECT company_id FROM sticky_notes WHERE id = ?", id);
+  if (!note || (note.company_id && note.company_id !== viewer.org.company.id)) return;
   run(`UPDATE sticky_notes SET pinned = 1 - pinned WHERE id = ?`, id);
   revalidatePath(String(formData.get("path") ?? "/"));
 }

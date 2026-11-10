@@ -13,6 +13,10 @@ export async function runImportAction(_prev: ImportState, formData: FormData): P
 
   const text = String(formData.get("text") ?? "").trim();
   if (!text) return { error: "Paste the source rows (with a header line) or upload a file first." };
+  const departmentId = String(formData.get("departmentId") ?? "").trim();
+  if (departmentId && !viewer.departmentIds.has(departmentId)) {
+    return { error: "The selected department is outside your authorised scope." };
+  }
 
   const target = String(formData.get("target") ?? "activities") as "activities" | "pipeline";
   const mode = String(formData.get("mode") ?? "dry-run") as "dry-run" | "apply";
@@ -23,7 +27,13 @@ export async function runImportAction(_prev: ImportState, formData: FormData): P
       target,
       mode,
       filename: String(formData.get("filename") ?? "pasted-rows"),
-      actorId: viewer.person.id,
+      actorId: viewer.actingAs.id,
+      companyId: viewer.org.company.id,
+      departmentId: (() => {
+        const requested = String(formData.get("departmentId") ?? "").trim();
+        if (!requested) return null;
+        return viewer.departmentIds.has(requested) ? requested : null;
+      })(),
     });
     recordAudit({
       actorId: viewer.person.id,

@@ -86,7 +86,7 @@ export function CalendarBoard({
         if (status !== "all" && a.status !== status) return false;
         if (query) {
           const q = query.toLowerCase();
-          if (!`${a.activity} ${a.detail ?? ""} ${a.code ?? ""} ${a.assignee_name}`.toLowerCase().includes(q)) return false;
+          if (!`${a.project_name ?? ""} ${a.activity} ${a.detail ?? ""} ${a.code ?? ""} ${a.assignee_name}`.toLowerCase().includes(q)) return false;
         }
         return true;
       }),
@@ -385,10 +385,10 @@ export function CalendarBoard({
                             opacity: continuesLeft ? 0.62 : 1,
                           }}
                           onClick={() => setOpenId(a.id)}
-                          title={`${a.activity} · ${a.assignee_name} · ${a.status}`}
+                          title={`${a.project_name ? `${a.project_name} · ` : ""}${a.activity} · ${a.assignee_name} · ${a.status}`}
                         >
                           {continuesLeft ? "◂ " : ""}
-                          {continuesRight ? "" : ""}
+                          {a.project_name ? <span style={{ opacity: 0.8 }}>{a.project_name} · </span> : null}
                           {a.activity}
                         </button>
                       );
@@ -467,6 +467,9 @@ export function CalendarBoard({
                 style={{ width: 6, alignSelf: "stretch", borderRadius: 4, background: open.colour, flex: "0 0 6px" }}
               />
               <div className="grow">
+                <div className="label" style={{ fontSize: "0.66rem" }}>
+                  Project {open.project_name ? `· ${open.project_name}` : "— not recorded"}
+                </div>
                 <h2 style={{ fontSize: "1.05rem" }}>{open.activity}</h2>
                 <div className="card-sub">
                   <span className="mono">{open.code}</span> · {open.group} · {open.department_name}
@@ -481,6 +484,7 @@ export function CalendarBoard({
                 <span className={`badge ${STATUS_BADGE[open.status] ?? "badge-slate"}`}>{open.status}</span>
                 <span className="badge badge-slate">{open.priority} priority</span>
                 {open.active ? <span className="badge badge-green">Active</span> : <span className="badge badge-slate">Inactive</span>}
+                {open.copy_batch_id ? <span className="badge badge-slate" title="Copied tenant data — deletable by batch">Copied</span> : null}
                 {open.scheduled ? null : <span className="badge badge-red">Unscheduled</span>}
                 <span className="badge badge-purple">{open.fte} FTE</span>
               </div>

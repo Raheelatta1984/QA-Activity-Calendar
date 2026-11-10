@@ -1,6 +1,8 @@
 export type ClientActivity = {
   id: string;
   code: string | null;
+  project_name: string | null;
+  copy_batch_id?: string | null;
   activity: string;
   detail: string | null;
   group: string;
@@ -65,6 +67,8 @@ export type ClientPipeline = {
   blocked_days: string[];
   warnings: string[];
   notes: string | null;
+  copy_batch_id?: string | null;
+  source_dataset?: string | null;
 };
 
 export type ClientPerson = {

@@ -8,6 +8,8 @@ export type Issue = {
   entity_id: string | null;
   rule: string;
   message: string;
+  /** Owning tenant; NULL only for legacy rows that predate tenant keys. */
+  company_id?: string | null;
 };
 
 export const RULE_CATALOGUE: { rule: string; severity: string; description: string; parity?: string }[] = [
@@ -129,13 +131,16 @@ export const RULE_CATALOGUE: { rule: string; severity: string; description: stri
   },
 ];
 
-export function detectIssues(): Issue[] {
+export function detectIssues(companyId?: string | null): Issue[] {
   const issues: Issue[] = [];
   const today = isoToday();
   const horizonEnd = addDays(today, 60);
+  const scopedRows = <T extends { company_id?: string | null }>(rows: T[]): T[] =>
+    companyId ? rows.filter((row) => row.company_id === companyId) : rows;
 
-  const activities = all<any>(`SELECT * FROM activities`);
-  const departments = new Map(all<any>(`SELECT id, enabled, name FROM departments`).map((d) => [d.id, d]));
+  const activities = scopedRows(all<any>(`SELECT * FROM activities`));
+  const departmentRows = all<any>(`SELECT id, enabled, name, company_id FROM departments`);
+  const departments = new Map(departmentRows.map((d) => [d.id, d]));
 
   const seenCodes = new Map<string, string[]>();
   for (const activity of activities) {
@@ -240,7 +245,7 @@ export function detectIssues(): Issue[] {
     });
   }
 
-  for (const item of all<any>(`SELECT * FROM recording_pipeline`)) {
+  for (const item of scopedRows(all<any>(`SELECT * FROM recording_pipeline`))) {
     const hasPlanned = isValidRange(item.planned_start, item.planned_end);
     const hasActual = isValidRange(item.actual_start, item.actual_end);
     if (!hasPlanned && !hasActual) {
@@ -281,7 +286,7 @@ export function detectIssues(): Issue[] {
     }
   }
 
-  for (const train of all<any>(`SELECT * FROM pqu_trains`)) {
+  for (const train of scopedRows(all<any>(`SELECT * FROM pqu_trains`))) {
     if (train.flag) {
       issues.push({
         severity: "warning",
@@ -293,7 +298,7 @@ export function detectIssues(): Issue[] {
     }
   }
 
-  for (const decision of all<any>(`SELECT * FROM release_governance`)) {
+  for (const decision of scopedRows(all<any>(`SELECT * FROM release_governance`))) {
     if (decision.go_no_go === "Go" && decision.regression_status !== "Passed") {
       issues.push({
         severity: "error",
@@ -313,7 +318,7 @@ export function detectIssues(): Issue[] {
   )) {
     releaseAssignees.set(row.release_id, Number(row.n));
   }
-  for (const release of all<any>(`SELECT * FROM release_feed`)) {
+  for (const release of scopedRows(all<any>(`SELECT * FROM release_feed`))) {
     const from = release.qa_start_date as string | null;
     const to = release.qa_end_date as string | null;
     if (!from && !to) {
@@ -356,7 +361,7 @@ export function detectIssues(): Issue[] {
     }
   }
 
-  for (const release of all<any>(`SELECT * FROM release_feed WHERE link IS NOT NULL AND link <> '' AND link_verified = 0`)) {
+  for (const release of scopedRows(all<any>(`SELECT * FROM release_feed WHERE link IS NOT NULL AND link <> '' AND link_verified = 0`))) {
     issues.push({
       severity: "info",
       entity: "release_feed",
@@ -366,7 +371,7 @@ export function detectIssues(): Issue[] {
     });
   }
 
-  for (const enh of all<any>(`SELECT * FROM enhancements WHERE status NOT IN ('Archived','Rejected')`)) {
+  for (const enh of scopedRows(all<any>(`SELECT * FROM enhancements WHERE status NOT IN ('Archived','Rejected')`))) {
     if (!enh.success_criteria) {
       issues.push({
         severity: "info",
@@ -378,7 +383,7 @@ export function detectIssues(): Issue[] {
     }
   }
 
-  for (const exclusion of all<any>(`SELECT * FROM pipeline_exclusions`)) {
+  for (const exclusion of scopedRows(all<any>(`SELECT * FROM pipeline_exclusions`))) {
     if (!exclusion.reason) {
       issues.push({
         severity: "error",
@@ -390,7 +395,11 @@ export function detectIssues(): Issue[] {
     }
   }
 
-  const activePeople = all<any>(`SELECT * FROM people WHERE active = 1`);
+  const activePeople = all<any>(`SELECT * FROM people WHERE active = 1`).filter((person) => {
+    if (!companyId) return true;
+    const dept = person.department_id ? departments.get(person.department_id) : null;
+    return dept?.company_id === companyId;
+  });
   const monthStartIso = `${today.slice(0, 7)}-01`;
   const lastDay = new Date(
     Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0)
@@ -399,9 +408,9 @@ export function detectIssues(): Issue[] {
     (day) => isWorkingDay(day, new Set())
   );
   const capacityKeys = new Set(
-    all<any>(`SELECT person_id, date FROM resource_day_capacity WHERE date >= ? AND date <= ?`, currentDays[0], currentDays[currentDays.length - 1]).map(
-      (c) => `${c.person_id}|${c.date}`
-    )
+    all<any>(`SELECT person_id, date FROM resource_day_capacity WHERE date >= ? AND date <= ?`, currentDays[0], currentDays[currentDays.length - 1])
+      .filter((c) => !companyId || activePeople.some((person) => person.id === c.person_id))
+      .map((c) => `${c.person_id}|${c.date}`)
   );
   let missingCount = 0;
   for (const person of activePeople) {
@@ -418,7 +427,9 @@ export function detectIssues(): Issue[] {
       message: `${missingCount} person-day capacity entries are missing this month.`,
     });
   }
-  for (const entry of all<any>(`SELECT * FROM resource_day_capacity WHERE total_hours = 8`)) {
+  for (const entry of all<any>(`SELECT * FROM resource_day_capacity WHERE total_hours = 8`).filter((entry) =>
+    !companyId || activePeople.some((person) => person.id === entry.person_id)
+  )) {
     issues.push({
       severity: "info",
       entity: "capacity",
@@ -428,10 +439,41 @@ export function detectIssues(): Issue[] {
     });
   }
 
+  // Attribute every issue to exactly one tenant so a Data Quality badge can
+  // never aggregate another company's rows. IDs are globally unique, so a map
+  // from entity id -> company id is sufficient and cheap.
+  const companyByEntity = new Map<string, string | null>();
+  const remember = (rows: any[], entity: string) => {
+    for (const row of rows) companyByEntity.set(`${entity}:${row.id}`, row.company_id ?? null);
+  };
+  remember(activities, "activity");
+  remember(scopedRows(all<any>(`SELECT id, company_id FROM recording_pipeline`)), "pipeline");
+  remember(scopedRows(all<any>(`SELECT id, company_id FROM pqu_trains`)), "pqu_train");
+  remember(scopedRows(all<any>(`SELECT id, company_id FROM release_governance`)), "release_governance");
+  remember(scopedRows(all<any>(`SELECT id, company_id FROM release_feed`)), "release_feed");
+  remember(scopedRows(all<any>(`SELECT id, company_id FROM enhancements`)), "enhancement");
+  remember(scopedRows(all<any>(`SELECT id, company_id FROM pipeline_exclusions`)), "pipeline_exclusion");
+  remember(
+    all<any>(
+      `SELECT r.id, d.company_id FROM resource_day_capacity r
+         JOIN people p ON p.id = r.person_id
+         JOIN departments d ON d.id = p.department_id`
+    ),
+    "capacity"
+  );
+  for (const person of all<any>(`SELECT id, department_id FROM people`)) {
+    const dept = person.department_id ? departments.get(person.department_id) : null;
+    companyByEntity.set(`person:${person.id}`, dept?.company_id ?? null);
+  }
+  for (const issue of issues) {
+    const key = issue.entity_id ? `${issue.entity}:${issue.entity_id}` : "";
+    issue.company_id = companyByEntity.get(key) ?? companyId ?? null;
+  }
+
   return issues;
 }
 
-export function persistIssues(issues: Issue[]) {
+export function persistIssues(issues: Issue[], companyId?: string | null) {
   const seen = new Set<string>();
   for (const issue of issues) {
     seen.add(`${issue.entity}|${issue.entity_id ?? ""}|${issue.rule}`);
@@ -443,26 +485,29 @@ export function persistIssues(issues: Issue[]) {
     );
     if (existing) {
       run(
-        `UPDATE validation_issues SET severity = ?, message = ?, last_seen = datetime('now'),
+        `UPDATE validation_issues SET severity = ?, message = ?, company_id = COALESCE(?, company_id), last_seen = datetime('now'),
           status = CASE WHEN status = 'resolved' THEN 'open' ELSE status END WHERE id = ?`,
         issue.severity,
         issue.message,
+        issue.company_id ?? null,
         existing.id
       );
     } else {
       run(
-        `INSERT INTO validation_issues (id, severity, entity, entity_id, rule, message, status)
-         VALUES (?, ?, ?, ?, ?, ?, 'open')`,
+        `INSERT INTO validation_issues (id, severity, entity, entity_id, rule, message, status, company_id)
+         VALUES (?, ?, ?, ?, ?, ?, 'open', ?)`,
         uid("vi"),
         issue.severity,
         issue.entity,
         issue.entity_id,
         issue.rule,
-        issue.message
+        issue.message,
+        issue.company_id ?? null
       );
     }
   }
-  for (const row of all<any>(`SELECT id, entity, entity_id, rule FROM validation_issues WHERE status = 'open'`)) {
+  for (const row of all<any>(`SELECT id, entity, entity_id, rule, company_id FROM validation_issues WHERE status = 'open'`)) {
+    if (companyId && row.company_id && row.company_id !== companyId) continue;
     if (!seen.has(`${row.entity}|${row.entity_id ?? ""}|${row.rule}`)) {
       run(`UPDATE validation_issues SET status = 'resolved', last_seen = datetime('now') WHERE id = ?`, row.id);
     }
@@ -470,15 +515,16 @@ export function persistIssues(issues: Issue[]) {
   return issues.length;
 }
 
-export function runValidation() {
-  const issues = detectIssues();
-  persistIssues(issues);
+export function runValidation(companyId?: string | null) {
+  const issues = detectIssues(companyId);
+  persistIssues(issues, companyId);
   return issues;
 }
 
-export function validationSummary() {
+export function validationSummary(companyId?: string | null) {
   const rows = all<any>(
-    `SELECT severity, COUNT(*) AS n FROM validation_issues WHERE status = 'open' GROUP BY severity`
+    `SELECT severity, COUNT(*) AS n FROM validation_issues WHERE status = 'open'${companyId ? " AND company_id = ?" : ""} GROUP BY severity`,
+    ...(companyId ? [companyId] : [])
   );
   const counts = { error: 0, warning: 0, info: 0 } as Record<string, number>;
   for (const row of rows || []) counts[row.severity] = row.n;

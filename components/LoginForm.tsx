@@ -7,7 +7,9 @@ import type { LoginScope } from "@/lib/org";
 
 export function LoginForm({ scope }: { scope: LoginScope }) {
   const { companies, entities, accounts, selectedCompanyId, selectedEntityId } = scope;
-  const firstFillable = accounts.find((a) => a.is_demo === 1) ?? accounts.find((a) => a.has_login === 1) ?? null;
+  const fillableEmail = (a: (typeof accounts)[number]) =>
+    a.is_demo === 1 && a.email ? a.email : a.has_login === 1 && a.email ? a.email : a.linked_email;
+  const firstFillable = accounts.find((a) => !!fillableEmail(a)) ?? null;
   const [state, formAction, pending] = useActionState<LoginState, FormData>(loginAction, {});
   const [email, setEmail] = useState(firstFillable?.email ?? "");
   const [password, setPassword] = useState(firstFillable?.is_demo === 1 ? "demo1234" : "");
@@ -15,8 +17,8 @@ export function LoginForm({ scope }: { scope: LoginScope }) {
   // When the company/entity scope changes, re-anchor the email to a sign-in-able
   // account in the new scope instead of keeping a stale one.
   useEffect(() => {
-    const next = accounts.find((a) => a.is_demo === 1) ?? accounts.find((a) => a.has_login === 1) ?? null;
-    setEmail(next?.email ?? "");
+    const next = accounts.find((a) => !!fillableEmail(a)) ?? null;
+    setEmail(next ? fillableEmail(next) ?? "" : "");
     setPassword(next?.is_demo === 1 ? "demo1234" : "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCompanyId, selectedEntityId]);
@@ -31,8 +33,9 @@ export function LoginForm({ scope }: { scope: LoginScope }) {
   const demoCount = accounts.filter((a) => a.is_demo === 1).length;
 
   const fill = (account: (typeof accounts)[number]) => {
-    if (!account.email) return;
-    setEmail(account.email);
+    const emailForAccount = fillableEmail(account);
+    if (!emailForAccount) return;
+    setEmail(emailForAccount);
     setPassword(account.is_demo === 1 ? "demo1234" : "");
   };
 
@@ -59,8 +62,8 @@ export function LoginForm({ scope }: { scope: LoginScope }) {
               >
                 <span className="strong">{company.name}</span>
                 <span className="muted">
-                  {company.department_count} dept{company.department_count === 1 ? "" : "s"} · {company.person_count} people
-                  {company.is_default ? " · default" : ""}
+                  {company.is_default ? "default workspace" : "workspace"}
+                  {company.code ? ` · ${company.code}` : ""}
                 </span>
               </a>
             ))}
@@ -80,9 +83,7 @@ export function LoginForm({ scope }: { scope: LoginScope }) {
                 aria-current={entity.id === selectedEntityId ? "true" : undefined}
               >
                 <span className="strong">{entity.name}</span>
-                <span className="muted">
-                  {entity.department_count} dept{entity.department_count === 1 ? "" : "s"} · {entity.person_count} people
-                </span>
+                <span className="muted">entity scope</span>
               </a>
             ))}
             {entities.length === 0 ? (
@@ -95,6 +96,8 @@ export function LoginForm({ scope }: { scope: LoginScope }) {
       ) : null}
 
       <form action={formAction} className="stack-sm" style={{ marginTop: 4 }}>
+        <input type="hidden" name="companyId" value={selectedCompanyId} />
+        <input type="hidden" name="entityId" value={selectedEntityId ?? ""} />
         <div className="field">
           <label htmlFor="email">Work email</label>
           <input
@@ -140,7 +143,7 @@ export function LoginForm({ scope }: { scope: LoginScope }) {
           <div className="card-sub">No active people in this scope yet.</div>
         ) : (
           accounts.map((account) => {
-            const clickable = account.has_login === 1 && !!account.email;
+            const clickable = !!fillableEmail(account);
             const initials = account.name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("");
             return (
               <button
@@ -150,11 +153,13 @@ export function LoginForm({ scope }: { scope: LoginScope }) {
                 onClick={() => fill(account)}
                 disabled={!clickable}
                 title={
-                  account.has_login === 1
-                    ? account.is_demo === 1
-                      ? "Demo identity — fills the shared demo password"
-                      : "Fills the email; enter your password"
-                    : "No credentials set yet — ask an administrator"
+                  account.is_demo === 1
+                    ? "Demo identity — fills the shared demo password"
+                    : account.has_login === 1
+                      ? "Fills the email; enter your password"
+                      : account.linked_email
+                        ? "Tenant identity — sign in with its linked account email and password"
+                        : "No credentials set yet — ask an administrator"
                 }
               >
                 <span className="row" style={{ gap: 10 }}>
@@ -164,8 +169,14 @@ export function LoginForm({ scope }: { scope: LoginScope }) {
                     <span className="muted"> · {account.title ?? account.role}{account.department_name ? ` · ${account.department_name}` : ""}</span>
                   </span>
                 </span>
-                <span className={`badge ${account.is_demo === 1 ? "badge-blue" : account.has_login === 1 ? "badge-green" : "badge-slate"}`}>
-                  {account.is_demo === 1 ? "demo" : account.has_login === 1 ? "sign-in ready" : "credentials not set"}
+                <span className={`badge ${account.is_demo === 1 ? "badge-blue" : account.has_login === 1 ? "badge-green" : account.linked_email ? "badge-purple" : "badge-slate"}`}>
+                  {account.is_demo === 1
+                    ? "demo"
+                    : account.has_login === 1
+                      ? "sign-in ready"
+                      : account.linked_email
+                        ? "linked identity"
+                        : "credentials not set"}
                 </span>
               </button>
             );

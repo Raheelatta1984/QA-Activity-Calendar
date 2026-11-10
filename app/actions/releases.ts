@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { all, get, run, transaction } from "@/lib/db";
-import { canEdit, getViewer } from "@/lib/access";
+import { canEdit, departmentInCompany, getViewer, tenantId } from "@/lib/access";
 import { uid } from "@/lib/ids";
 import { isIsoDate } from "@/lib/dates";
 import { recordAudit } from "@/lib/audit";
@@ -31,8 +31,11 @@ export async function saveReleaseFeedAction(formData: FormData): Promise<void> {
     link: field(formData, "link"),
     department_id: field(formData, "department_id"),
   };
+  const companyId = tenantId(viewer);
+  if (payload.department_id && !departmentInCompany(viewer, payload.department_id)) return;
   if (id) {
     const before = get<any>("SELECT * FROM release_feed WHERE id = ?", id);
+    if (!before || (before.company_id && before.company_id !== companyId)) return;
     run(
       `UPDATE release_feed SET version = ?, kind = ?, date = ?, notes = ?, link = ?, department_id = ?, link_verified = 0 WHERE id = ?`,
       payload.version,
@@ -55,8 +58,9 @@ export async function saveReleaseFeedAction(formData: FormData): Promise<void> {
   } else {
     const newId = uid("rf");
     run(
-      `INSERT INTO release_feed (id, version, kind, date, notes, link, department_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO release_feed (id, company_id, version, kind, date, notes, link, department_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       newId,
+      companyId,
       payload.version,
       payload.kind,
       payload.date,
@@ -81,6 +85,8 @@ export async function verifyReleaseLinkAction(formData: FormData): Promise<void>
   const viewer = await getViewer();
   if (!canEdit(viewer)) return;
   const id = String(formData.get("id") ?? "");
+  const target = get<{ company_id: string | null }>("SELECT company_id FROM release_feed WHERE id = ?", id);
+  if (!target || (target.company_id && target.company_id !== tenantId(viewer))) return;
   run(`UPDATE release_feed SET link_verified = 1 WHERE id = ?`, id);
   recordAudit({
     actorId: viewer.person.id,
@@ -119,8 +125,10 @@ export async function savePquAction(formData: FormData): Promise<void> {
     date_text_raw: field(formData, "date_text_raw"),
     flag: flags.length ? flags.join(" ") : null,
   };
+  const companyId = tenantId(viewer);
   if (id) {
     const before = get<any>("SELECT * FROM pqu_trains WHERE id = ?", id);
+    if (!before || (before.company_id && before.company_id !== companyId)) return;
     run(
       `UPDATE pqu_trains SET train = ?, change_cutoff = ?, duration_days = ?, status = ?, app_version = ?, platform_version = ?, date_text_raw = ?, flag = ? WHERE id = ?`,
       payload.train,
@@ -145,9 +153,10 @@ export async function savePquAction(formData: FormData): Promise<void> {
   } else {
     const newId = uid("pqu");
     run(
-      `INSERT INTO pqu_trains (id, train, change_cutoff, duration_days, status, app_version, platform_version, date_text_raw, flag)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO pqu_trains (id, company_id, train, change_cutoff, duration_days, status, app_version, platform_version, date_text_raw, flag)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       newId,
+      companyId,
       payload.train,
       payload.change_cutoff,
       payload.duration_days,
@@ -178,6 +187,14 @@ export async function saveDecisionAction(_prev: DecisionResult, formData: FormDa
   const version = field(formData, "version");
   if (!version) return { error: "A release version is required." };
 
+  const release = get<{ id: string; company_id: string | null }>(
+    `SELECT id, company_id FROM release_feed WHERE version = ? ORDER BY created_at DESC LIMIT 1`,
+    version
+  );
+  if (!release || (release.company_id && release.company_id !== tenantId(viewer))) {
+    return { error: "That release belongs to another company or no longer exists." };
+  }
+
   const regression = field(formData, "regression_status") ?? "Not started";
   const goNoGo = field(formData, "go_no_go") ?? "Pending";
   const deployment = field(formData, "deployment_status") ?? "Not deployed";
@@ -194,15 +211,16 @@ export async function saveDecisionAction(_prev: DecisionResult, formData: FormDa
 
   const id = uid("gov");
   run(
-    `INSERT INTO release_governance (id, release_id, version, regression_status, go_no_go, deployment_status, decided_by, decided_at, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO release_governance (id, company_id, release_id, version, regression_status, go_no_go, deployment_status, decided_by, decided_at, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
+    tenantId(viewer),
     `REL-${version}`,
     version,
     regression,
     goNoGo,
     deployment,
-    goNoGo === "Pending" ? null : viewer.person.id,
+    goNoGo === "Pending" ? null : viewer.actingAs.id,
     goNoGo === "Pending" ? null : decidedAt || new Date().toISOString().slice(0, 10),
     field(formData, "notes")
   );
@@ -254,11 +272,13 @@ export async function saveReleasePlanAction(
 
   const id = field(formData, "id");
   if (!id) return { error: "Missing release reference." };
-  const release = get<{ id: string; version: string }>(
-    `SELECT id, version FROM release_feed WHERE id = ?`,
+  const release = get<{ id: string; version: string; company_id: string | null }>(
+    `SELECT id, version, company_id FROM release_feed WHERE id = ?`,
     id
   );
-  if (!release) return { error: "That release no longer exists." };
+  if (!release || (release.company_id && release.company_id !== tenantId(viewer))) {
+    return { error: "That release no longer exists in this company." };
+  }
 
   const from = field(formData, "qa_start_date");
   const to = field(formData, "qa_end_date");

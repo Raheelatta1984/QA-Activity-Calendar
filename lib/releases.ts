@@ -1,5 +1,5 @@
 import { all, get, run } from "./db";
-import type { Viewer } from "./access";
+import { departmentScope, tenantId, type Viewer } from "./access";
 import { eachDay, inclusiveDays, isIsoDate, isValidRange, isoToday, isWorkingDay } from "./dates";
 import { holidayMap } from "./pipeline";
 import { appSettings } from "./settings";
@@ -174,8 +174,10 @@ export function listReleasePlans(viewer: Viewer, filters: ReleaseFilters = {}): 
   const today = isoToday();
   const holidays = new Set(holidayMap().keys());
 
+  const companyId = tenantId(viewer);
   const releases = all<{
     id: string;
+    company_id: string | null;
     version: string;
     kind: string;
     date: string | null;
@@ -189,12 +191,14 @@ export function listReleasePlans(viewer: Viewer, filters: ReleaseFilters = {}): 
     qa_end_date: string | null;
     qa_owner_id: string | null;
   }>(
-    `SELECT r.id, r.version, r.kind, r.date, r.notes, r.link, r.link_verified, r.department_id,
+    `SELECT r.id, r.company_id, r.version, r.kind, r.date, r.notes, r.link, r.link_verified, r.department_id,
             r.qa_start_date, r.qa_end_date, r.qa_owner_id,
             d.name AS department_name, d.colour AS department_colour
        FROM release_feed r
        LEFT JOIN departments d ON d.id = r.department_id
-      ORDER BY COALESCE(NULLIF(r.qa_start_date, ''), NULLIF(r.date, ''), '9999-12-31'), r.version`
+      WHERE r.company_id = ?
+      ORDER BY COALESCE(NULLIF(r.qa_start_date, ''), NULLIF(r.date, ''), '9999-12-31'), r.version`,
+    companyId
   );
 
   if (!releases.length) return [];
@@ -215,8 +219,10 @@ export function listReleasePlans(viewer: Viewer, filters: ReleaseFilters = {}): 
             p.name, p.title, p.colour, p.department_id, d.name AS department_name
        FROM release_assignees ra
        JOIN people p ON p.id = ra.person_id
-       LEFT JOIN departments d ON d.id = p.department_id
-      ORDER BY p.name`
+       JOIN departments d ON d.id = p.department_id
+      WHERE d.company_id = ?
+      ORDER BY p.name`,
+    companyId
   );
   const byRelease = new Map<string, ReleaseAssignee[]>();
   for (const row of assignments) {
@@ -238,7 +244,12 @@ export function listReleasePlans(viewer: Viewer, filters: ReleaseFilters = {}): 
   const plans: ReleasePlan[] = [];
   for (const release of releases) {
     const assignees = byRelease.get(release.id) ?? [];
+    if (release.company_id && release.company_id !== companyId) continue;
     if (!visibleTo(viewer, release, assignees)) continue;
+    const selectedDepartments = departmentScope(viewer);
+    const restrictDepartments =
+      selectedDepartments.length > 0 && selectedDepartments.length < viewer.departmentIds.size;
+    if (restrictDepartments && !selectedDepartments.includes(release.department_id ?? "")) continue;
     if (filters.personId && !assignees.some((a) => a.person_id === filters.personId)) continue;
     if (filters.departmentId && release.department_id !== filters.departmentId) continue;
     const planned = isValidRange(release.qa_start_date, release.qa_end_date);
@@ -466,6 +477,10 @@ function round(value: number) {
 }
 
 /** Guard used by the server action and the bootstrap demo data. */
-export function releaseExists(id: string) {
-  return !!get<{ id: string }>(`SELECT id FROM release_feed WHERE id = ?`, id);
+export function releaseExists(id: string, companyId?: string | null) {
+  return !!get<{ id: string }>(
+    `SELECT id FROM release_feed WHERE id = ?${companyId ? " AND company_id = ?" : ""}`,
+    id,
+    ...(companyId ? [companyId] : [])
+  );
 }

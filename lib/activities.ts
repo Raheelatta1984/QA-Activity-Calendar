@@ -1,12 +1,15 @@
 import { all, get, json, run } from "./db";
 import { appSettings } from "./settings";
-import type { Viewer } from "./access";
+import { departmentScope, tenantId, type Viewer } from "./access";
 import { inclusiveDays, isValidRange } from "./dates";
 
 export type Activity = {
   id: string;
   code: string | null;
   department_id: string | null;
+  company_id: string | null;
+  project_name: string | null;
+  copy_batch_id?: string | null;
   activity: string;
   detail: string | null;
   activity_group: string;
@@ -73,7 +76,7 @@ export function hoursFromFte(fte: number, hoursPerDay = appSettings().hoursPerDa
   return Math.round(fte * hoursPerDay * 100) / 100;
 }
 
-export function bugCountsFor(activityIds: string[]) {
+export function bugCountsFor(activityIds: string[], companyId?: string | null) {
   if (!activityIds.length) return new Map<string, { reported: number; fixed: number; closed: number; outstanding: number }>();
   const rows = all<{ activity_id: string; reported: number; fixed: number; closed: number }>(
     `SELECT activity_id,
@@ -82,8 +85,10 @@ export function bugCountsFor(activityIds: string[]) {
             SUM(CASE WHEN status = 'Closed' THEN 1 ELSE 0 END) AS closed
        FROM bugs
       WHERE activity_id IN (${activityIds.map(() => "?").join(",")})
+        ${companyId ? "AND company_id = ?" : ""}
       GROUP BY activity_id`,
-    ...activityIds
+    ...activityIds,
+    ...(companyId ? [companyId] : [])
   );
   const map = new Map<string, { reported: number; fixed: number; closed: number; outstanding: number }>();
   for (const row of rows) {
@@ -105,28 +110,50 @@ export function derivedProgress(counts?: { reported: number; fixed: number; clos
   return Math.round((score / counts.reported) * 100);
 }
 
+/**
+ * Tenant + department + person visibility for activities.
+ *
+ * The company clause is unconditional — even an application administrator sees
+ * only the selected tenant. A department selection narrows further; an empty
+ * selection means every department the viewer is authorised for.
+ */
 export function visibilitySql(viewer: Viewer): { clause: string; params: unknown[] } {
   const params: unknown[] = [];
-  const parts: string[] = [];
+  const company = tenantId(viewer);
+  const parts: string[] = ["a.company_id = ?"];
+  params.push(company);
+
+  const selected = departmentScope(viewer);
+  const restrictDepartments = selected.length > 0 && selected.length < viewer.departmentIds.size;
+  const deptClause = restrictDepartments
+    ? `a.department_id IN (${selected.map(() => "?").join(",")})`
+    : null;
+
   if (viewer.canSeeAll) {
-    return { clause: "1=1", params };
+    if (deptClause) {
+      parts.push(deptClause);
+      params.push(...selected);
+    }
+    return { clause: `(${parts.join(" AND ")})`, params };
   }
   const personIds = [...viewer.personIds];
+  const own: string[] = [];
   if (personIds.length) {
-    parts.push(`a.assignee_id IN (${personIds.map(() => "?").join(",")})`);
+    own.push(`a.assignee_id IN (${personIds.map(() => "?").join(",")})`);
     params.push(...personIds);
   }
-  const depts = viewer.activeDepartmentId
-    ? [viewer.activeDepartmentId]
-    : viewer.actingAs.department_id
+  const depts = selected.length
+    ? selected
+    : viewer.actingAs.department_id && viewer.departmentIds.has(viewer.actingAs.department_id)
       ? [viewer.actingAs.department_id]
       : [];
   if (depts.length) {
-    parts.push(`(a.assignee_id IS NULL AND a.department_id IN (${depts.map(() => "?").join(",")}))`);
+    own.push(`(a.assignee_id IS NULL AND a.department_id IN (${depts.map(() => "?").join(",")}))`);
     params.push(...depts);
   }
-  parts.push("1=0");
-  return { clause: `(${parts.join(" OR ")})`, params };
+  own.push("1=0");
+  parts.push(`(${own.join(" OR ")})`);
+  return { clause: `(${parts.join(" AND ")})`, params };
 }
 
 export function listActivities(
@@ -163,9 +190,11 @@ export function listActivities(
     params.push(opts.group);
   }
   if (opts.search) {
-    where.push("(LOWER(a.activity) LIKE ? OR LOWER(COALESCE(a.detail,'')) LIKE ? OR LOWER(COALESCE(a.code,'')) LIKE ?)");
+    where.push(
+      "(LOWER(a.activity) LIKE ? OR LOWER(COALESCE(a.detail,'')) LIKE ? OR LOWER(COALESCE(a.code,'')) LIKE ? OR LOWER(COALESCE(a.project_name,'')) LIKE ?)"
+    );
     const term = `%${opts.search.toLowerCase()}%`;
-    params.push(term, term, term);
+    params.push(term, term, term, term);
   }
   const limit = opts.limit ?? 500;
   const rows = all<Activity & { assignee_name: string | null; department_name: string | null; department_colour: string | null }>(
@@ -179,7 +208,7 @@ export function listActivities(
     ...params,
     limit
   );
-  const counts = bugCountsFor(rows.map((r) => r.id));
+  const counts = bugCountsFor(rows.map((r) => r.id), tenantId(viewer));
   return rows.map((row) => {
     const bug_counts = counts.get(row.id) ?? { reported: 0, fixed: 0, closed: 0, outstanding: 0 };
     return {
@@ -220,7 +249,8 @@ export function activitySummary(viewer: Viewer, from: string, to: string) {
             SUM(CASE WHEN status = 'Fixed' THEN 1 ELSE 0 END) AS fixed,
             SUM(CASE WHEN status = 'Closed' THEN 1 ELSE 0 END) AS closed,
             SUM(CASE WHEN status = 'Open' THEN 1 ELSE 0 END) AS outstanding
-       FROM bugs`
+       FROM bugs WHERE company_id = ?`,
+    tenantId(viewer)
   )[0] ?? { reported: 0, fixed: 0, closed: 0, outstanding: 0 };
   return {
     activities,

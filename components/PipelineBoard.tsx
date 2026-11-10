@@ -80,6 +80,11 @@ export function PipelineBoard({
                 <div className="row" style={{ gap: 6 }}>
                   <strong style={{ fontSize: "0.9rem" }}>{item.activity}</strong>
                   {item.is_test ? <span className="badge badge-amber">TEST</span> : null}
+                  {item.copy_batch_id ? (
+                    <span className="badge badge-purple" title={`Copied data — batch ${item.copy_batch_id}`}>
+                      Copied
+                    </span>
+                  ) : null}
                   {item.verification_status === "Needs operational confirmation" ? (
                     <span className="badge badge-orange" title="TEST-labelled source record awaiting owner confirmation">Needs confirmation</span>
                   ) : item.verification_status === "Confirmed operational" ? (

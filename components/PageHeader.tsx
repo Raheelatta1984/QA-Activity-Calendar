@@ -1,7 +1,8 @@
 import { notesFor } from "@/lib/notes";
+import { getViewer } from "@/lib/access";
 import { StickyNotes } from "./StickyNotes";
 
-export function PageHeader({
+export async function PageHeader({
   id,
   title,
   description,
@@ -18,7 +19,8 @@ export function PageHeader({
   path?: string;
   canEdit?: boolean;
 }) {
-  const tabNotes = id.startsWith("tab.") ? notesFor(id) : [];
+  const viewer = await getViewer();
+  const tabNotes = id.startsWith("tab.") ? notesFor(id, undefined, viewer.org.company.id) : [];
   return (
     <div className="page-head" style={{ marginBottom: tabNotes.length ? 10 : 18 }}>
       <div>
@@ -36,8 +38,9 @@ export function PageHeader({
   );
 }
 
-export function PageGuidance({ id, path, canEdit }: { id: string; path: string; canEdit: boolean }) {
-  const notes = notesFor(id);
+export async function PageGuidance({ id, path, canEdit }: { id: string; path: string; canEdit: boolean }) {
+  const viewer = await getViewer();
+  const notes = notesFor(id, undefined, viewer.org.company.id);
   if (!notes.length) return null;
   return (
     <div style={{ maxWidth: 980, marginBottom: 18 }}>

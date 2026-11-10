@@ -21,7 +21,7 @@ export type Person = {
   department_id: string | null;
   manager_id: string | null;
   name: string;
-  email: string;
+  email: string | null;
   title: string | null;
   role: "admin" | "exec" | "manager" | "department_admin" | "editor" | "viewer";
   role_scope_department_id?: string | null;

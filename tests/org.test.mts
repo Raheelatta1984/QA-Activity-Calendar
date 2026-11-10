@@ -38,21 +38,30 @@ after(() => {
   }
 });
 
-test("companies list shows both tenants with the HFM company as default", () => {
+test("companies list shows three tenants with the HFM company as default", () => {
   const companies = listCompanies();
-  assert.equal(companies.length, 2);
-  assert.equal(companies[0].name, "HarrisFarm Markets", "default company sorts first");
-  assert.equal(companies[0].is_default, 1);
-  assert.equal(companies[0].code, "HFM");
-  assert.equal(companies[1].name, "HFM", "demo tenant still visible");
-  assert.equal(companies[1].is_default, 0);
+  assert.equal(companies.length, 3, "HFM, the demo tenant and the separate HFM2 tenant");
+  const hfm = companies.find((company) => company.code === "HFM")!;
+  const demo = companies.find((company) => company.name === "HFM")!;
+  const hfm2 = companies.find((company) => company.code === "HFM2")!;
+  assert.ok(hfm && demo && hfm2);
+  assert.equal(hfm.is_default, 1);
+  assert.equal(demo.is_default, 0);
+  assert.equal(hfm2.is_default, 0);
+  assert.equal(companies[0].id, hfm.id, "default company sorts first");
   // roll-up counts are real, not placeholders
-  assert.equal(companies[0].entity_count, 1);
-  assert.ok(companies[0].department_count >= 1);
-  assert.ok(companies[0].person_count >= 2);
-  assert.ok(companies[0].activity_count >= 52);
-  assert.ok(companies[1].department_count >= 5);
-  assert.ok(companies[1].person_count >= 10);
+  assert.equal(hfm.entity_count, 1);
+  assert.ok(hfm.department_count >= 1);
+  assert.ok(hfm.person_count >= 2);
+  assert.ok(hfm.activity_count >= 52);
+  assert.ok(demo.department_count >= 5);
+  assert.ok(demo.person_count >= 10);
+  // The separate tenant has its own entity and two department-bound people but
+  // no activities until data is deliberately copied into it.
+  assert.equal(hfm2.entity_count, 1);
+  assert.equal(hfm2.department_count, 4);
+  assert.equal(hfm2.person_count, 2);
+  assert.equal(hfm2.activity_count, 0);
 });
 
 test("entities are listed per company; demo tenant has none", () => {

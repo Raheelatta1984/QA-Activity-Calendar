@@ -30,6 +30,7 @@ const {
 } = await import("../lib/hfm-import");
 const { computeEffectiveDuration } = await import("../lib/pipeline");
 const { detectIssues } = await import("../lib/validation");
+const { listCompanies } = await import("../lib/org");
 const {
   loadOrg,
   scopeFor,
@@ -242,10 +243,13 @@ test("effective duration subtracts the union of auto overlaps and manual exclusi
 
 test("department-scoped administrators are isolated to their own department", () => {
   const org = loadOrg();
+  const demo = listCompanies().find((company) => company.name === "HFM")!;
+  const demoOrg = loadOrg(demo.id);
   const dept = org.departments.find((d) => d.name === "HFM IT QA");
-  const otherDept = org.departments.find((d) => d.name === "Quality Engineering");
+  const otherDept = demoOrg.departments.find((d) => d.name === "Quality Engineering");
   assert.ok(dept, "HFM IT QA department exists after import");
-  assert.ok(otherDept, "seeded demo department exists");
+  assert.ok(otherDept, "the demo tenant keeps its seeded department");
+  assert.ok(!org.departments.some((d) => d.id === otherDept!.id), "another tenant's departments are absent from HFM");
 
   const damien = org.people.find((p) => p.name === "Damien Milthorpe");
   const raheel = org.people.find((p) => p.name === "Raheel Atta");
@@ -261,7 +265,10 @@ test("department-scoped administrators are isolated to their own department", ()
   for (const id of deptScope.personIds) {
     assert.ok(hfmPeople.has(id) || id === damien!.id, "department admin sees only own-department people");
   }
-  assert.ok(!deptScope.personIds.has(org.people.find((p) => p.department_id === otherDept!.id && p.manager_id !== damien!.id)?.id ?? ""));
+  assert.ok(
+    !deptScope.personIds.has(demoOrg.people.find((p) => p.department_id === otherDept!.id)?.id ?? ""),
+    "a HFM department admin cannot see demo-tenant people"
+  );
 
   // Permission helpers honour the scope.
   const viewerFor = (person: any, readOnly = false) => {

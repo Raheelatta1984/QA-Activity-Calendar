@@ -5,6 +5,7 @@ import { uid } from "./ids";
 import { recordAudit } from "./audit";
 import { inclusiveDays, isIsoDate, isValidRange } from "./dates";
 import { runValidation } from "./validation";
+import { ensureHarrisfarmMarketsTenant } from "./tenants";
 
 /**
  * HFM seed/import — embedded source snapshot (2026-11-09, Australia/Sydney).
@@ -177,21 +178,29 @@ function resolveOrganisation(ctx: Ctx): OrgResolution {
   // --- company (stable key: code) -----------------------------------------
   let company = get<any>(`SELECT * FROM companies WHERE code = ?`, payload.company.code);
   if (!company) {
-    // Accept an exact name-or-alias match only if it carries no conflicting code;
-    // otherwise create a fresh company and leave anything else untouched.
+    // Adopt only an exact-name row that carries no conflicting code. Matching
+    // case-insensitively is unsafe: the separate tenant is deliberately named
+    // "Harrisfarm Markets" (a different company) and must never be hijacked by
+    // the HFM import. A similarly-named row with another code is reported and
+    // left untouched; a fresh HFM company is created instead.
     const byName = get<any>(
-      `SELECT * FROM companies WHERE LOWER(name) = LOWER(?) OR LOWER(COALESCE(legal_name, '')) = LOWER(?) LIMIT 1`,
-      payload.company.name,
+      `SELECT * FROM companies WHERE name = ? AND (code IS NULL OR code = '') LIMIT 1`,
       payload.company.name
     );
-    if (byName && byName.code && byName.code !== payload.company.code) {
-      throw new Error(
-        `Company named '${byName.name}' already exists with different code '${byName.code}'. Resolve manually before importing; refusing to guess.`
-      );
-    }
     if (byName) {
       company = byName;
-      actions.push(`reused company '${byName.name}' (id ${byName.id}) and attached code ${payload.company.code}`);
+      actions.push(`reused exact-name company '${byName.name}' (id ${byName.id}) and attached code ${payload.company.code}`);
+    } else {
+      const similar = get<any>(
+        `SELECT * FROM companies WHERE LOWER(name) = LOWER(?) OR LOWER(COALESCE(legal_name, '')) = LOWER(?) LIMIT 1`,
+        payload.company.name,
+        payload.company.name
+      );
+      if (similar) {
+        actions.push(
+          `left similarly-named company '${similar.name}' (code ${similar.code ?? "none"}, id ${similar.id}) untouched`
+        );
+      }
     }
   } else {
     actions.push(`reused company code ${payload.company.code} (id ${company.id})`);
@@ -289,7 +298,13 @@ function resolveOrganisation(ctx: Ctx): OrgResolution {
   // Damien first so Raheel can reference his id as manager.
   const upsertDamien = (departmentId: string) => {
     const spec = ORGANISATION_PAYLOAD.employees.find((e) => e.name === "Damien Milthorpe")!;
-    let person = get<any>(`SELECT * FROM people WHERE LOWER(name) = LOWER(?) LIMIT 1`, spec.name);
+    let person = get<any>(
+      `SELECT p.* FROM people p JOIN departments d ON d.id = p.department_id
+        WHERE d.company_id = (SELECT company_id FROM departments WHERE id = ?)
+          AND LOWER(p.name) = LOWER(?) LIMIT 1`,
+      departmentId,
+      spec.name
+    );
     if (person && person.email) {
       // An email appeared on his profile — that is fine, we do not touch it.
       actions.push(`damien: existing profile already carries a verified email`);
@@ -356,9 +371,21 @@ function resolveOrganisation(ctx: Ctx): OrgResolution {
     const spec = ORGANISATION_PAYLOAD.employees.find((e) => e.email)!;
     const email = spec.email!;
     // Identity is matched case-insensitively on the verified supplied email.
-    let person = get<any>(`SELECT * FROM people WHERE LOWER(email) = LOWER(?) LIMIT 1`, email);
+    let person = get<any>(
+      `SELECT p.* FROM people p JOIN departments d ON d.id = p.department_id
+        WHERE d.company_id = (SELECT company_id FROM departments WHERE id = ?)
+          AND LOWER(p.email) = LOWER(?) LIMIT 1`,
+      departmentId,
+      email
+    );
     if (!person) {
-      const byName = get<any>(`SELECT * FROM people WHERE LOWER(name) = LOWER(?) LIMIT 1`, spec.name);
+      const byName = get<any>(
+        `SELECT p.* FROM people p JOIN departments d ON d.id = p.department_id
+          WHERE d.company_id = (SELECT company_id FROM departments WHERE id = ?)
+            AND LOWER(p.name) = LOWER(?) LIMIT 1`,
+        departmentId,
+        spec.name
+      );
       if (byName) {
         if (byName.email && byName.email.toLowerCase() !== email.toLowerCase()) {
           throw new Error(
@@ -441,8 +468,22 @@ function resolveOrganisation(ctx: Ctx): OrgResolution {
     const existingDept = existingCompany
       ? get<any>(`SELECT * FROM departments WHERE company_id = ? AND LOWER(name) = LOWER(?)`, existingCompany.id, payload.department.name)
       : null;
-    const damien = get<any>(`SELECT * FROM people WHERE LOWER(name) = LOWER('Damien Milthorpe') LIMIT 1`);
-    const raheel = get<any>(`SELECT * FROM people WHERE LOWER(email) = LOWER(?) LIMIT 1`, ORGANISATION_PAYLOAD.employees[1].email);
+    const companyScope = existingDept?.company_id ?? existingCompany?.id ?? null;
+    const damien = companyScope
+      ? get<any>(
+          `SELECT p.* FROM people p JOIN departments d ON d.id = p.department_id
+            WHERE d.company_id = ? AND LOWER(p.name) = LOWER('Damien Milthorpe') LIMIT 1`,
+          companyScope
+        )
+      : null;
+    const raheel = companyScope
+      ? get<any>(
+          `SELECT p.* FROM people p JOIN departments d ON d.id = p.department_id
+            WHERE d.company_id = ? AND LOWER(p.email) = LOWER(?) LIMIT 1`,
+          companyScope,
+          ORGANISATION_PAYLOAD.employees[1].email
+        )
+      : null;
     actions.push(`dry-run: company ${existingCompany ? "exists (reuse)" : "would be created"}; entity ${existingEntity ? "exists (reuse)" : "would be created"}; department ${existingDept ? "exists (reuse)" : "would be created"}`);
     actions.push(`dry-run: Damien ${damien ? `exists (id ${damien.id}) → role department_admin scoped to HFM IT QA` : "would be created with email NULL (unprivileged for login)"}`);
     actions.push(`dry-run: Raheel ${raheel ? `exists (id ${raheel.id}) → role admin (application)` : "would be created with email " + ORGANISATION_PAYLOAD.employees[1].email + " and role admin (application); password/invitation required"}`);
@@ -1074,9 +1115,17 @@ export function runHfmImport(options: RunOptions): HfmReport {
       }
       return result;
     }
+    // The separate Harrisfarm Markets tenant lives beside HFM. Provisioning it
+    // here links the existing Damien/Raheel identities to their tenant-local
+    // copies; their HFM rows are not modified and no email is invented.
+    try {
+      ensureHarrisfarmMarketsTenant({ name: "hfm-import" });
+    } catch (error) {
+      result.warnings.push(`Tenant provisioning failed after apply: ${(error as Error).message}`);
+    }
     // Validation persists its own rows; keep it outside the import transaction.
     try {
-      runValidation();
+      runValidation(get<{ id: string }>("SELECT id FROM companies WHERE code = 'HFM'")?.id ?? null);
     } catch (error) {
       result.warnings.push(`runValidation failed after apply (import committed): ${(error as Error).message}`);
     }
@@ -1145,8 +1194,18 @@ export function verifyHfmImport(): VerificationResult {
   const dept = company ? get<any>(`SELECT * FROM departments WHERE company_id = ? AND LOWER(name) = 'hfm it qa'`, company.id) : null;
   check("One HFM IT QA department under Harrisfarm", !!dept && (!entity || dept.entity_id === entity.id), dept ? `id ${dept.id}, entity_id ${dept.entity_id}` : "not found");
 
-  const damien = get<any>(`SELECT * FROM people WHERE LOWER(name) = 'damien milthorpe' LIMIT 1`);
-  const raheel = get<any>(`SELECT * FROM people WHERE LOWER(email) = 'ratta@harrisfarm.com.au' LIMIT 1`);
+  const damien = get<any>(
+    `SELECT p.* FROM people p JOIN departments d ON d.id = p.department_id
+      WHERE d.company_id = (SELECT company_id FROM departments WHERE id = ?)
+        AND LOWER(p.name) = 'damien milthorpe' LIMIT 1`,
+    dept?.id ?? ""
+  );
+  const raheel = get<any>(
+    `SELECT p.* FROM people p JOIN departments d ON d.id = p.department_id
+      WHERE d.company_id = (SELECT company_id FROM departments WHERE id = ?)
+        AND LOWER(p.email) = 'ratta@harrisfarm.com.au' LIMIT 1`,
+    dept?.id ?? ""
+  );
   check("Damien Milthorpe profile exists in HFM IT QA", !!damien && !!dept && damien.department_id === dept.id, damien ? `id ${damien.id}` : "missing");
   check("Damien has department-scoped admin (department_admin → HFM IT QA only)", !!damien && damien.role === "department_admin" && damien.role_scope_department_id === dept?.id, damien ? `role=${damien.role}, scope=${damien.role_scope_department_id}` : "missing");
   check("Damien email is NULL (not invented) until verified", !!damien && damien.email === null, damien ? `email=${damien.email}` : "missing");

@@ -7,7 +7,7 @@ import { saveCompanyAction, savePersonAction, type AdminResult } from "@/app/act
 export type PersonRecord = {
   id: string;
   name: string;
-  email: string;
+  email: string | null;
   title: string | null;
   role: string;
   manager_id: string | null;
@@ -55,8 +55,15 @@ export function PersonForm({
                 <input className="input" name="name" defaultValue={person?.name ?? ""} required />
               </div>
               <div className="field">
-                <label>Email *</label>
-                <input className="input" type="email" name="email" defaultValue={person?.email ?? ""} required />
+                <label>Email {person ? "" : "*"}</label>
+                <input
+                  className="input"
+                  type="email"
+                  name="email"
+                  defaultValue={person?.email ?? ""}
+                  required={!person}
+                  placeholder={person?.email ? "" : "No address on record — leave blank"}
+                />
               </div>
               <div className="field">
                 <label>Job title</label>

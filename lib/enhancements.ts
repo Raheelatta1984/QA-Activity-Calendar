@@ -391,15 +391,17 @@ export function readEnhancementMarkdown(item: {
   return { filename: safeName, content: fileContent };
 }
 
-export function listEnhancements(): Enhancement[] {
+export function listEnhancements(companyId?: string | null): Enhancement[] {
   return all<Enhancement>(
     `SELECT e.*, p.name AS submitted_by_name, d.name AS department_name
        FROM enhancements e
        LEFT JOIN people p ON p.id = e.submitted_by
        LEFT JOIN departments d ON d.id = e.department_id
+      ${companyId ? "WHERE e.company_id = ?" : ""}
       ORDER BY CASE e.status WHEN 'Reviewing' THEN 1 WHEN 'Submitted' THEN 2 WHEN 'Accepted' THEN 3
                              WHEN 'Building' THEN 4 WHEN 'Built' THEN 5 WHEN 'Archived' THEN 6 ELSE 7 END,
-               e.created_at DESC`
+               e.created_at DESC`,
+    ...(companyId ? [companyId] : [])
   );
 }
 

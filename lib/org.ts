@@ -6,6 +6,33 @@ import { all, get, run, transaction } from "./db";
  * reads and links what other parts of the app own.
  */
 
+/**
+ * The pre-tenancy workspace: the company whose demo identities existed before
+ * companies were separated. Department-less people are attached here only.
+ *
+ * The demo marker is used instead of creation timestamps because several
+ * companies can be created in the same second (as the test bootstrap does), and
+ * a name tiebreak would silently hand the legacy roster to a newly provisioned
+ * tenant.
+ */
+export function legacyCompanyId(
+  companies: Array<{ id: string; created_at?: string }> = listCompanies()
+): string | null {
+  const demoCompany = get<{ company_id: string }>(
+    `SELECT d.company_id, COUNT(*) AS n
+       FROM people p JOIN departments d ON d.id = p.department_id
+      WHERE p.is_demo = 1
+      GROUP BY d.company_id
+      ORDER BY n DESC, d.company_id
+      LIMIT 1`
+  )?.company_id;
+  if (demoCompany) return demoCompany;
+  return [...companies].sort(
+    (a, b) =>
+      (a.created_at ?? "").localeCompare(b.created_at ?? "") || a.id.localeCompare(b.id)
+  )[0]?.id ?? null;
+}
+
 export type CompanyRow = {
   id: string;
   name: string;
@@ -92,6 +119,9 @@ export type LoginAccount = {
   has_login: number;
   department_name: string | null;
   entity_id: string | null;
+  linked_person_id: string | null;
+  /** Email of the linked account when this tenant identity has no login of its own. */
+  linked_email: string | null;
 };
 
 export type LoginScope = {
@@ -124,9 +154,7 @@ export function listLoginAccounts(companyId?: string | null, entityId?: string |
   // Department-less people belong to no entity and no company. Attach them to
   // the oldest company only (the pre-multitenant workspace) so they are not
   // duplicated under every tenant and never leak into another tenant's roster.
-  const oldestCompanyId = [...companies].sort(
-    (a, b) => a.created_at.localeCompare(b.created_at) || (a.is_default ?? 0) - (b.is_default ?? 0) || a.name.localeCompare(b.name)
-  )[0]?.id;
+  const oldestCompanyId = legacyCompanyId(companies);
   const companyFilter = selectedEntityId
     ? "d.entity_id = ?"
     : selectedCompanyId === oldestCompanyId
@@ -137,9 +165,11 @@ export function listLoginAccounts(companyId?: string | null, entityId?: string |
   const accounts = all<LoginAccount>(
     `SELECT p.id, p.name, p.email, p.role, p.title, p.is_demo,
             (p.password_hash IS NOT NULL) AS has_login,
-            d.name AS department_name, d.entity_id
+            d.name AS department_name, d.entity_id, p.linked_person_id,
+            lp.email AS linked_email
        FROM people p
        LEFT JOIN departments d ON d.id = p.department_id
+       LEFT JOIN people lp ON lp.id = p.linked_person_id
       WHERE p.active = 1 AND ${companyFilter}
       ORDER BY p.is_demo DESC, ${ROLE_ORDER}, p.name`,
     ...params

@@ -5,7 +5,13 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Icon } from "./icons";
 import { WelcomeToast } from "./WelcomeToast";
-import { logoutAction, switchDepartmentAction, switchPersonaAction } from "@/app/actions/auth";
+import {
+  logoutAction,
+  switchCompanyAction,
+  switchDepartmentsAction,
+  switchEntityAction,
+  switchPersonaAction,
+} from "@/app/actions/auth";
 
 export type ShellTab = {
   id: string;
@@ -32,6 +38,11 @@ export function Shell({
   version,
   departments,
   activeDepartmentId,
+  activeDepartmentIds = [],
+  companies = [],
+  selectedCompanyId,
+  entities = [],
+  selectedEntityId = null,
   ephemeral,
   showLoginWelcome = false,
   children,
@@ -42,8 +53,13 @@ export function Shell({
   personaOptions: ShellPerson[];
   children: React.ReactNode;
   version: string;
-  departments: { id: string; name: string; enabled: number }[];
+  departments: { id: string; name: string; enabled: number; entity_id?: string | null }[];
   activeDepartmentId: string | null;
+  activeDepartmentIds?: string[];
+  companies?: { id: string; name: string; code?: string | null }[];
+  selectedCompanyId?: string;
+  entities?: { id: string; name: string }[];
+  selectedEntityId?: string | null;
   ephemeral?: boolean;
   showLoginWelcome?: boolean;
 }) {
@@ -95,7 +111,7 @@ export function Shell({
           <div className="brand-mark">HF</div>
           <div className="grow">
             <div className="brand-name">QA Calendar</div>
-            <div className="brand-sub">HFM · {version}</div>
+            <div className="brand-sub">{companies.find((c) => c.id === selectedCompanyId)?.name ?? "HFM"} · {version}</div>
           </div>
           <button className="icon-btn mobile-only" onClick={() => setOpen(false)} aria-label="Close navigation">
             <Icon name="close" size={16} />
@@ -167,26 +183,89 @@ export function Shell({
           </div>
 
           <div className="topbar-actions">
-            <form action={switchDepartmentAction} className="hide-sm">
-              <input type="hidden" name="redirectTo" value={pathname} />
-              <select
-                className="select select-sm"
-                name="departmentId"
-                defaultValue={activeDepartmentId ?? ""}
-                onChange={(e) => e.currentTarget.form?.requestSubmit()}
-                aria-label="Department scope"
-                style={{ maxWidth: 168 }}
-              >
-                <option value="">All departments</option>
-                {departments
-                  .filter((d) => d.enabled)
-                  .map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
+            {companies.length > 1 ? (
+              <form action={switchCompanyAction} className="hide-sm">
+                <input type="hidden" name="redirectTo" value={pathname} />
+                <select
+                  className="select select-sm"
+                  name="companyId"
+                  defaultValue={selectedCompanyId ?? ""}
+                  onChange={(e) => e.currentTarget.form?.requestSubmit()}
+                  aria-label="Company tenant"
+                  style={{ maxWidth: 190 }}
+                >
+                  {companies.map((company) => (
+                    <option key={company.id} value={company.id}>
+                      {company.name}{company.code ? ` (${company.code})` : ""}
                     </option>
                   ))}
-              </select>
-            </form>
+                </select>
+              </form>
+            ) : null}
+
+            {entities.length ? (
+              <form action={switchEntityAction} className="hide-sm">
+                <input type="hidden" name="redirectTo" value={pathname} />
+                <select
+                  className="select select-sm"
+                  name="entityId"
+                  defaultValue={selectedEntityId ?? ""}
+                  onChange={(e) => e.currentTarget.form?.requestSubmit()}
+                  aria-label="Entity scope"
+                  style={{ maxWidth: 168 }}
+                >
+                  <option value="">All entities</option>
+                  {entities.map((entity) => (
+                    <option key={entity.id} value={entity.id}>{entity.name}</option>
+                  ))}
+                </select>
+              </form>
+            ) : null}
+
+            <details className="hide-sm" style={{ position: "relative" }}>
+              <summary
+                className="btn btn-sm btn-ghost"
+                style={{ cursor: "pointer", whiteSpace: "nowrap", listStyle: "none" }}
+                title="Choose one, several or all authorised departments"
+              >
+                <Icon name="layers" size={13} />{" "}
+                {activeDepartmentIds.length === 0
+                  ? "All departments"
+                  : activeDepartmentIds.length === 1
+                    ? departments.find((d) => d.id === activeDepartmentIds[0])?.name ?? "1 department"
+                    : `${activeDepartmentIds.length} departments`}
+              </summary>
+              <div
+                className="card card-pad stack-sm"
+                style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 45, width: 250 }}
+              >
+                <div className="label">Departments</div>
+                <form action={switchDepartmentsAction} className="stack-sm">
+                  <input type="hidden" name="redirectTo" value={pathname} />
+                {departments
+                  .filter((d) => d.enabled)
+                  .map((department) => (
+                    <label key={department.id} className="check" style={{ fontSize: "0.78rem" }}>
+                      <input
+                        type="checkbox"
+                        name="departmentIds"
+                        value={department.id}
+                        defaultChecked={activeDepartmentIds.includes(department.id)}
+                      />
+                      {department.name}
+                    </label>
+                  ))}
+                  <button className="btn btn-sm btn-primary" type="submit">Apply selection</button>
+                </form>
+                <form action={switchDepartmentsAction}>
+                  <input type="hidden" name="redirectTo" value={pathname} />
+                  <button className="btn btn-sm btn-ghost" type="submit">
+                    Show all authorised departments
+                  </button>
+                </form>
+                <div className="card-sub">Selecting several departments unions their people and work. Empty = all you are authorised to see.</div>
+              </div>
+            </details>
 
             {personaOptions.length > 1 ? (
               <form action={switchPersonaAction} className="hide-sm">

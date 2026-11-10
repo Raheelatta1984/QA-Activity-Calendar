@@ -1,5 +1,6 @@
 import { get } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { getViewer } from "@/lib/access";
 import { ensureBootstrapped } from "@/lib/bootstrap";
 import { readEnhancementMarkdown } from "@/lib/enhancements";
 import { statusAfterArchive } from "@/lib/enhancement-status";
@@ -10,14 +11,16 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   await ensureBootstrapped();
   const session = await getSession();
   if (!session) return new Response("Authentication required", { status: 401, headers: { "Cache-Control": "no-store" } });
+  const viewer = await getViewer();
   const { id } = await context.params;
   const item = get<any>(
     `SELECT e.*, p.name AS submitted_by_name
        FROM enhancements e
        LEFT JOIN people p ON p.id = e.submitted_by
-      WHERE e.id = ? OR e.ref = ?`,
+      WHERE (e.id = ? OR e.ref = ?) AND e.company_id = ?`,
     id,
-    id
+    id,
+    viewer.org.company.id
   );
   if (!item) return new Response("Not found", { status: 404 });
 
@@ -32,7 +35,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       "Cache-Control": "private, no-store",
       "Content-Type": "text/markdown; charset=utf-8",
       "Content-Disposition": `attachment; filename="${safeDispositionName}"`,
-      "X-Requested-By": session.person.email,
+      "X-Requested-By": session.person.email ?? "",
       "X-Enhancement-Status": status,
     },
   });
