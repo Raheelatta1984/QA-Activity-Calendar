@@ -50,7 +50,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     ? !matchedTab.enabled || roleRank < (ROLE_RANK[matchedTab.min_role] ?? 1)
     : false;
 
-  const latest = get<{ version: string }>(`SELECT version FROM changelog ORDER BY date DESC, created_at DESC, rowid DESC LIMIT 1`);
+  const latest = get<{ version: string }>(`SELECT version FROM changelog ORDER BY date DESC, created_at DESC, id DESC LIMIT 1`);
 
   const personaIds =
     viewer.person.role === "admin" || viewer.person.role === "exec"

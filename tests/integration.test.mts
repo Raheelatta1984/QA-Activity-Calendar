@@ -284,7 +284,13 @@ test("FTE calendar scopes by department, group and quarter", () => {
   const qa = all<{ id: string }>(`SELECT id FROM departments WHERE code = 'QA'`)[0];
   const scoped = fteCalendar(admin, { monthKey: isoToday().slice(0, 7), departmentId: qa.id });
   assert.equal(scoped.scope.department_name, "Quality Engineering");
-  for (const row of scoped.rows) assert.equal(row.department_id, qa.id);
+  // Activity rows belong to the scoped department. Release rows are keyed to the
+  // release's owning department (Release Management) but are included when one of
+  // their assignees sits in the scoped department, so they are exempt from this
+  // particular invariant — the release-scope test below covers them instead.
+  for (const row of scoped.rows.filter((entry: any) => entry.kind === "activity")) {
+    assert.equal(row.department_id, qa.id);
+  }
 
   const regression = fteCalendar(admin, { monthKey: isoToday().slice(0, 7), group: "Regression" });
   assert.ok(regression.rows.length > 0);

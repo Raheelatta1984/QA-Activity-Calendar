@@ -6,6 +6,8 @@ import { Section } from "@/components/Section";
 import { PageHeader, PageGuidance } from "@/components/PageHeader";
 import { DecisionForm } from "@/components/DecisionForm";
 import { Icon } from "@/components/icons";
+import { ReleasePlanForm } from "@/components/ReleasePlanForm";
+import { assignablePeople, listReleasePlans, releaseFteTotals } from "@/lib/releases";
 import {
   deleteReleaseFeedAction,
   savePquAction,
@@ -38,6 +40,11 @@ export default async function ReleasesPage() {
   const goCount = decisions.filter((d) => d.go_no_go === "Go").length;
   const flagged = trains.filter((t) => t.flag);
 
+  // Release planning drives the release FTE below and the QA/FTE calendars.
+  const releasePlans = listReleasePlans(viewer, { includeUnplanned: true });
+  const releaseTotals = releaseFteTotals(releasePlans);
+  const people = assignablePeople(viewer);
+
   return (
     <main className="page">
       <PageHeader
@@ -47,7 +54,7 @@ export default async function ReleasesPage() {
         meta={
           <>
             {feed.length} feed entries · {trains.length} trains ({flagged.length} flagged) · {decisions.length} decisions
-            recorded
+            recorded · {releaseTotals.fte_days} release FTE-days
           </>
         }
       />
@@ -72,6 +79,24 @@ export default async function ReleasesPage() {
           <div className="kpi-label">Deployment plans</div>
           <div className="kpi-value">{plans.length}</div>
           <div className="kpi-foot">WORKDAY.INTL parity: start + weeks×6</div>
+        </div>
+        <div className="kpi" style={{ ["--kpi-accent" as string]: "var(--purple)" }}>
+          <div className="kpi-label">Release QA FTE</div>
+          <div className="kpi-value">
+            {releaseTotals.fte_days}
+            <small>FTE-days</small>
+          </div>
+          <div className="kpi-foot">
+            {releaseTotals.assignees} assignee{releaseTotals.assignees === 1 ? "" : "s"} · {releaseTotals.hours}h ·{" "}
+            {releaseTotals.scheduled}/{releaseTotals.releases} window{releaseTotals.releases === 1 ? "" : "s"} planned
+          </div>
+        </div>
+        <div className="kpi" style={{ ["--kpi-accent" as string]: releaseTotals.unassigned ? "var(--warn)" : "var(--good)" }}>
+          <div className="kpi-label">Windows needing assignees</div>
+          <div className="kpi-value">{releaseTotals.unassigned + releaseTotals.unplanned}</div>
+          <div className="kpi-foot">
+            {releaseTotals.unassigned} without assignees · {releaseTotals.unplanned} without dates
+          </div>
         </div>
       </div>
 
@@ -184,6 +209,151 @@ export default async function ReleasesPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      </Section>
+
+      <Section
+        id="sec.releases.planning"
+        tabId="tab.releases"
+        title="QA window, assignees & release FTE"
+        description="A release date is not effort. Enter the inclusive QA window (from → to) and the people who do the work, with the FTE each carries per working day. Working days exclude weekends and NSW public holidays; FTE-days = Σ FTE × working days. The same numbers render as bars on the QA calendar and as demand rows on the FTE calendar."
+        path="/releases"
+        canEdit={editable}
+      >
+        <div className="card-pad stack">
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Release</th>
+                  <th>Release date</th>
+                  <th>QA window</th>
+                  <th className="num">Cal. days</th>
+                  <th className="num">Working days</th>
+                  <th>Assignees</th>
+                  <th className="num">FTE / day</th>
+                  <th className="num">FTE-days</th>
+                  <th className="num">Hours</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {releasePlans.map((plan) => (
+                  <tr key={plan.id} id={`release-row-${plan.id}`}>
+                    <td className="mono">{plan.version}</td>
+                    <td className="mono nowrap">{plan.date ?? "—"}</td>
+                    <td className="mono nowrap">
+                      {plan.qa_start_date || plan.qa_end_date
+                        ? `${plan.qa_start_date ?? "?"} → ${plan.qa_end_date ?? "?"}`
+                        : "—"}
+                    </td>
+                    <td className="num">{plan.calendar_days || "—"}</td>
+                    <td className="num">{plan.working_days || "—"}</td>
+                    <td>
+                      {plan.assignees.length ? (
+                        <span className="row" style={{ gap: 5, flexWrap: "wrap" }}>
+                          {plan.assignees.map((assignee) => (
+                            <span className="badge badge-slate" key={assignee.id}>
+                              <span className="legend-swatch" style={{ background: assignee.colour }} /> {assignee.name}
+                              {" · "}
+                              {assignee.fte} FTE
+                            </span>
+                          ))}
+                        </span>
+                      ) : (
+                        <span className="badge badge-amber">Unassigned — effort unknown</span>
+                      )}
+                    </td>
+                    <td className="num">{plan.fte_per_day || "—"}</td>
+                    <td className="num">
+                      <strong>{plan.fte_days}</strong>
+                    </td>
+                    <td className="num">{plan.hours || "—"}</td>
+                    <td>
+                      <span
+                        className={`badge ${
+                          plan.status === "Scheduled"
+                            ? "badge-blue"
+                            : plan.status === "In progress"
+                              ? "badge-amber"
+                              : plan.status === "Complete"
+                                ? "badge-green"
+                                : "badge-red"
+                        }`}
+                      >
+                        {plan.status}
+                      </span>
+                      {plan.warnings.length ? (
+                        <div className="card-sub" style={{ fontSize: "0.66rem", maxWidth: 260 }}>
+                          {plan.warnings[0]}
+                        </div>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+                {!releasePlans.length ? (
+                  <tr>
+                    <td colSpan={10}>
+                      <div className="empty">No releases yet — add one in the release feed above.</div>
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={5}>
+                    <strong>Total planned QA effort</strong>
+                  </td>
+                  <td>
+                    {releaseTotals.assignees} assignee{releaseTotals.assignees === 1 ? "" : "s"}
+                  </td>
+                  <td className="num">{releaseTotals.peak_fte_per_day || "—"}</td>
+                  <td className="num">
+                    <strong>{releaseTotals.fte_days}</strong>
+                  </td>
+                  <td className="num">{releaseTotals.hours || "—"}</td>
+                  <td className="muted">{releaseTotals.scheduled} scheduled</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {editable ? (
+            <div className="stack-sm">
+              {releasePlans.map((plan) => (
+                <ReleasePlanForm
+                  key={plan.id}
+                  release={{
+                    id: plan.id,
+                    version: plan.version,
+                    qa_start_date: plan.qa_start_date,
+                    qa_end_date: plan.qa_end_date,
+                    defaultFte: 0.5,
+                    people: people.map((person) => {
+                      const assignment = plan.assignees.find((assignee) => assignee.person_id === person.id);
+                      return {
+                        id: person.id,
+                        name: person.name,
+                        title: person.title,
+                        colour: person.colour,
+                        department_name: person.department_name,
+                        fte: assignment ? assignment.fte : null,
+                      };
+                    }),
+                  }}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="card-sub">
+              Read-only: QA windows and assignees are edited by an editor, manager or administrator.
+            </div>
+          )}
+
+          <div className="card-sub">
+            Working-day rule: Monday–Friday minus NSW public holidays from Master Setup. FTE is demand per working
+            day — a 0.5 FTE assignee on a 10 working-day window contributes 5.0 FTE-days ({settings.hoursPerDay}h/day).
           </div>
         </div>
       </Section>

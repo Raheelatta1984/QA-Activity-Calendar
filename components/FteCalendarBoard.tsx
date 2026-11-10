@@ -15,6 +15,10 @@ export type FteBoardDay = {
 
 export type FteBoardRow = {
   id: string;
+  /** `release` rows carry release QA-window demand, not an activity record. */
+  kind?: "activity" | "release";
+  /** Where the row title links to. */
+  href?: string;
   code: string | null;
   activity: string;
   detail: string | null;
@@ -171,13 +175,18 @@ export function FteCalendarBoard({
                       <span className="legend-swatch" style={{ background: row.colour, flex: "0 0 8px" }} />
                       <span style={{ minWidth: 0 }}>
                         <a
-                          href={`/calendar?month=${(row.start_date ?? "").slice(0, 7)}&activity=${row.id}`}
+                          href={row.href ?? `/calendar?month=${(row.start_date ?? "").slice(0, 7)}&activity=${row.id}`}
                           style={{ color: "var(--text)", fontWeight: 600, textDecoration: "none" }}
                           title={`${row.detail ?? row.activity} — open in the QA calendar`}
                         >
                           {row.activity}
                         </a>
                         <div className="card-sub" style={{ fontSize: "0.68rem", whiteSpace: "nowrap" }}>
+                          {row.kind === "release" ? (
+                            <span className="badge badge-purple" style={{ fontSize: "0.6rem", marginRight: 5 }}>
+                              release
+                            </span>
+                          ) : null}
                           {row.assignee_name} · {row.group} · {row.effective_fte} FTE
                         </div>
                       </span>

@@ -18,6 +18,7 @@ export function FteScopeBar({
   people,
   assigneeId,
   testingOnly,
+  releasesIncluded = true,
   search,
 }: {
   range: "month" | "quarter";
@@ -32,6 +33,8 @@ export function FteScopeBar({
   people: FteScopeOption[];
   assigneeId: string | null;
   testingOnly: boolean;
+  /** Release QA windows are merged into demand unless this is switched off. */
+  releasesIncluded?: boolean;
   search: string;
 }) {
   const router = useRouter();
@@ -45,6 +48,7 @@ export function FteScopeBar({
       group: group ?? "",
       assignee: assigneeId ?? "",
       testing: testingOnly ? "1" : "0",
+      releases: releasesIncluded ? "1" : "0",
       q: search,
     };
     if (range === "quarter" && quarter) current.quarter = String(quarter);
@@ -171,11 +175,20 @@ export function FteScopeBar({
             <input type="checkbox" checked={testingOnly} onChange={(e) => update({ testing: e.target.checked ? "1" : "0" })} />
             Testing activities only
           </label>
+          <label className="check" style={{ fontSize: "0.78rem", paddingBottom: 6 }}>
+            <input
+              type="checkbox"
+              checked={releasesIncluded}
+              onChange={(e) => update({ releases: e.target.checked ? "1" : "0" })}
+            />
+            Include release QA windows
+          </label>
         </div>
       </div>
       <div className="card-sub" style={{ marginTop: 10 }}>
         <Icon name="info" size={12} /> Scope changes are stored in the URL, so any view can be shared or bookmarked.
-        Recording/pipeline rows are excluded while “Testing activities only” is on.
+        Recording/pipeline rows are excluded while “Testing activities only” is on; release QA windows come from
+        Releases → QA windows &amp; assignees and contribute the FTE their assignees carry.
       </div>
     </div>
   );

@@ -1,7 +1,6 @@
 import { getViewer, canAdmin } from "@/lib/access";
-import { all } from "@/lib/db";
+import { all, json, tableCount } from "@/lib/db";
 import { formatDate, isoToday } from "@/lib/dates";
-import { json } from "@/lib/db";
 import { appSettings } from "@/lib/settings";
 import { aiStatus } from "@/lib/ai";
 import { PageHeader, PageGuidance } from "@/components/PageHeader";
@@ -24,10 +23,9 @@ export default async function ChangelogPage() {
   const admin = canAdmin(viewer);
   const settings = appSettings();
   const ai = aiStatus();
-  const entries = all<any>(`SELECT * FROM changelog WHERE published = 1 ORDER BY date DESC, created_at DESC, rowid DESC`);
+  const entries = all<any>(`SELECT * FROM changelog WHERE published = 1 ORDER BY date DESC, created_at DESC, id DESC`);
   const migrations = all<{ name: string; applied_at: string }>(`SELECT * FROM _migrations ORDER BY name`);
-  const tableCount =
-    all<{ n: number }>(`SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`)[0]?.n ?? 0;
+  const tableTotal = tableCount();
   const audit = all<any>(`SELECT * FROM audit_events ORDER BY at DESC LIMIT 10`);
   const demoRows = all<{ n: number }>(
     `SELECT (SELECT COUNT(*) FROM activities WHERE is_demo = 1) + (SELECT COUNT(*) FROM bugs WHERE is_demo = 1) AS n`
@@ -153,7 +151,7 @@ export default async function ChangelogPage() {
             <div className="stat-line"><span className="muted">Fiscal start month</span><span>{settings.fiscalStartMonth}</span></div>
             <div className="stat-line"><span className="muted">Hours per day default</span><span>{settings.hoursPerDay}</span></div>
             <div className="stat-line"><span className="muted">AI provider</span><span>{ai.provider} · {ai.model}</span></div>
-            <div className="stat-line"><span className="muted">Database tables</span><span>{tableCount}</span></div>
+            <div className="stat-line"><span className="muted">Database tables</span><span>{tableTotal}</span></div>
             <div className="stat-line"><span className="muted">Demo rows flagged</span><span>{demoRows}</span></div>
           </div>
           <div>

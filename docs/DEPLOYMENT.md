@@ -4,7 +4,11 @@
 
 - Node.js **22.5+** (uses the built-in `node:sqlite`; tested on 22.22).
 - npm 10+.
-- No external database required for the reference build. Neon/Postgres is the recommended production store (see [ERD → migration path](./ERD.md#postgres--neon-migration-path)).
+- A database. **Postgres is the production store** and is supported in-app: set
+  `DATABASE_URL` and the same code, schema, migrations and queries run against
+  it. With no `DATABASE_URL` the app uses a local SQLite file, which is right for
+  a laptop and wrong for a deployment (§3). See
+  [ERD → Postgres](./ERD.md#postgres--neon).
 
 ## 2. Local / staging runbook
 
@@ -33,12 +37,12 @@ Vercel gives a function a **read-only bundle** and a **writable `/tmp`**, and ea
 
 | Concern | Behaviour on Vercel |
 | --- | --- |
-| Database location | `DATABASE_FILE` if set, otherwise `/tmp/qa-calendar.db`. If the configured path is not writable the app logs a warning and falls back to `/tmp`. |
+| Database | `DATABASE_URL` → Postgres (durable). Without it, SQLite at `DATABASE_FILE`, otherwise `/tmp/qa-calendar.db`; if the configured path is not writable the app logs a warning and falls back to `/tmp`. |
 | Enhancement vault | `ENHANCEMENT_VAULT_DIR` if set, otherwise `/tmp/enhancements` on serverless (and falls back to `/tmp/enhancements` whenever the repository `enhancements/` directory returns `EROFS`/`EACCES`). Proposals remain downloadable as frontmatter Markdown via `/api/enhancements/:id`. |
 | Schema | Migrations are embedded into `db/migrations.generated.ts` at build time (`prebuild`), so a cold start never depends on `.sql` files that were not traced into the bundle. Also applied read from disk in dev. |
 | Seeding | Idempotent bootstrap runs on the first request per instance: migrations → reference config → demo rows (unless `SEED_DEMO_DATA=false`) → validation scan. A failed run is retried on the next request and its error is exposed by `/api/health`. |
 | Sessions | Cookies are signed, self-contained tokens (`<base64url payload>.<hmac>`), so a login survives a cold start or a hop to another instance. The `sessions` row is still written and honoured when present (revocation/audit). |
-| Persistence | **Per instance only.** Data resets when the function restarts and two instances can diverge. The UI shows a "Serverless demo instance" banner whenever ephemeral storage is in use. |
+| Persistence | With `DATABASE_URL` (Postgres) data is durable and shared by every instance. Without it, storage is **per instance only**: data resets when the function restarts, two instances can diverge, and the UI shows a "Serverless demo instance" banner. |
 
 Required project settings:
 
@@ -48,9 +52,15 @@ Build command      npm run build        (prebuild embeds migrations)
 Install command    npm install
 Node.js version    22.x                 (node:sqlite requires 22.5+)
 Env                SESSION_SECRET=<32+ random chars>   (recommended; a dev secret is used otherwise)
+                   DATABASE_URL=postgres://…          (required for durable data)
+                   DATABASE_REQUIRE_POSTGRES=true     (refuse to run on a local file)
 ```
 
 Do **not** set `DATABASE_FILE` to a path inside the deployment bundle — it is read-only. Leave it unset to use `/tmp`, or point it at a mounted writable volume if your platform provides one.
+
+On Vercel, `pg` is kept out of the bundle by `serverExternalPackages` and traced
+into the server output explicitly, because the Postgres bridge resolves it with
+`require()` at runtime rather than through a static import.
 
 ### Health probe
 
@@ -59,13 +69,17 @@ Do **not** set `DATABASE_FILE` to a path inside the deployment bundle — it is 
 ```json
 {
   "ok": true,
-  "file": "/tmp/qa-calendar.db",
-  "ephemeral": true,
+  "driver": "postgres",
+  "durable": true,
+  "target": "postgres://qa@db.example/qa",
+  "baseline": "005_release_planning.sql",
+  "fallbackReason": null,
+  "ephemeral": false,
   "serverless": true,
   "bootstrapDone": true,
   "bootstrapError": null,
-  "tables": 35,
-  "migrations": ["001_init.sql"],
+  "tables": 40,
+  "migrations": ["pg-baseline@005_release_planning.sql"],
   "people": 12
 }
 ```
@@ -81,18 +95,61 @@ Do **not** set `DATABASE_FILE` to a path inside the deployment bundle — it is 
 | `no such table: …` | Migration SQL missing from the bundle | Ensure `prebuild` ran / `db/migrations.generated.ts` is committed, then redeploy |
 | `EROFS` / `EACCES` in logs | Writable path configured inside the bundle | Unset `DATABASE_FILE` / `ENHANCEMENT_VAULT_DIR` to use `/tmp` |
 | Login bounces back to `/login` | `SESSION_SECRET` changed between deployments, or cookie blocked | Set a stable `SESSION_SECRET`; sign in again |
-| Data resets after a while | Expected on ephemeral storage | Configure Postgres for durable storage (see ERD) |
+| Data resets after a while | No `DATABASE_URL`, so the app used per-instance SQLite | Configure Postgres (§3.1) |
+| Health shows `driver: "sqlite"` in production | `DATABASE_URL` missing/unreachable and the driver fell back | Read `driverError`/`fallbackReason`, fix the URL, set `DATABASE_REQUIRE_POSTGRES=true` so this cannot happen silently |
+| `Postgres: password authentication failed` | Wrong credentials, or a pooler URL with the wrong user format | Use the pooled connection string from the provider; rotate the password in the secret store |
+| `Postgres: relation "…" does not exist` | Migrations did not run on this database | Call `/api/health` once (it bootstraps), or run `npm run db:migrate` with `DATABASE_URL` set |
 
-### Durable storage
+### 3.1 Durable storage (Postgres)
 
-For a real deployment put Postgres/Neon in front of the data layer (keeps the same natural keys and import idempotency). Until then, treat the Vercel deployment as a **demo environment**: it is fully functional, but it is not a system of record. Back up `/tmp` data only if you accept it may disappear.
+Postgres is a supported driver, not a migration project. Point the app at a
+database and it stores everything there — accounts, sessions, activities,
+pipeline, releases and their QA windows, validation, audit, enhancements.
+
+```bash
+# Any managed or self-hosted Postgres works (Neon, RDS, Supabase, Azure…).
+# Add ?sslmode=require for a hosted server that terminates TLS.
+export DATABASE_URL='postgres://qa:secret@db.example.com:5432/qa'
+export DATABASE_REQUIRE_POSTGRES=true   # refuse to fall back to a local file
+export PG_POOL_MAX=5                    # 2–5 per serverless instance
+
+npm run db:migrate     # creates the schema, records the baseline
+npm run db:seed        # reference config (+ demo rows unless SEED_DEMO_DATA=false)
+npm run build && npm start
+```
+
+How the schema gets there: the app ships one set of migrations. On a Postgres
+database the first boot replays `db/migrations/*.sql` into an in-memory SQLite
+engine, converts the resulting schema to Postgres DDL and applies it as a single
+transaction, recording `pg-baseline@005_release_planning.sql` in
+`_migrations`. Only migrations written *after* that baseline are translated
+statement by statement, so the shape of the schema is identical on both drivers
+by construction rather than by two hand-maintained copies.
+
+Operational notes:
+
+- **Backups**: use the provider's point-in-time recovery; take a snapshot before
+  any migration. `npm run db:backup` is SQLite-only.
+- **Restore**: restore the snapshot, point `DATABASE_URL` at it, and open
+  `/api/health` and `/validation` to confirm schema and data.
+- **Connection limits**: serverless platforms scale out per request; keep
+  `PG_POOL_MAX` small and use a pooled endpoint if the provider offers one.
+- **Sessions**: cookies are self-contained signed tokens, so a login survives
+  restarts and instance hops on either driver.
+- **Verification**: `tests/postgres-driver.test.mts` boots PGlite (Postgres in
+  WASM) behind the wire protocol in a child process and runs the real driver
+  end to end — migration, queries, constraints, transactions and the
+  release/FTE reads — so the Postgres path is covered in CI without a server.
 
 ## 4. Environment variables
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `DATABASE_FILE` | dev | SQLite path (default `./data/qa-calendar.db`) |
-| `DATABASE_URL` | prod (Postgres) | Neon/Postgres connection string once the adapter is swapped |
+| `DATABASE_URL` | **prod** | Postgres connection string (`postgres://…`). When set, the Postgres driver is used and SQLite is ignored. |
+| `DATABASE_DRIVER` | no | `postgres` \| `sqlite` — pins the driver; default is postgres when `DATABASE_URL` is set |
+| `DATABASE_REQUIRE_POSTGRES` | prod | Refuse to start on the SQLite fallback so a connection problem is loud, never silent |
+| `PG_POOL_MAX` | no | Postgres pool size per process (default 5; keep 2–5 on serverless) |
+| `DATABASE_FILE` | dev | SQLite path (default `./data/qa-calendar.db`), ignored when Postgres is active |
 | `SESSION_SECRET` | **yes** | Signs session cookies. Rotating it signs everyone out. |
 | `APP_TIMEZONE` | no | Display timezone, default `Australia/Sydney` |
 | `SEED_DEMO_DATA` | no | `false` for a clean production instance |
@@ -108,11 +165,12 @@ Secrets live in the platform secret store. `.env` is gitignored; `.env.example` 
 ## 5. Production checklist
 
 - [ ] `SESSION_SECRET` set to 32+ random characters, stored outside git.
+- [ ] `DATABASE_URL` points at Postgres, `DATABASE_REQUIRE_POSTGRES=true`, and `/api/health` reports `driver: "postgres"`, `durable: true`.
 - [ ] `SEED_DEMO_DATA=false` and demo rows removed (`npm run db:reset` is local-only; in Postgres delete `is_demo = 1` rows deliberately).
 - [ ] Authentication replaced with the approved IdP (see [DECISIONS #1](./DECISIONS.md)); local password login disabled.
 - [ ] HTTPS enforced; cookies already `httpOnly`, `sameSite=lax`, `secure` in production.
 - [ ] Role assignment reviewed: at least one `admin`, execs limited to `exec` (holistic read).
-- [ ] Database backups scheduled (see §6) and restore rehearsed.
+- [ ] Database backups scheduled (Postgres PITR, see §7) and restore rehearsed.
 - [ ] NSW holidays verified for the current and next fiscal year.
 - [ ] Import dry-run run against the real workbook; row counts reconciled and exception report signed off.
 - [ ] Audit retention agreed.

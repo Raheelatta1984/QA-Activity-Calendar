@@ -18,8 +18,10 @@ import {
 import { appSettings } from "@/lib/settings";
 import { Section } from "@/components/Section";
 import { CalendarBoard } from "@/components/CalendarBoard";
-import { toClientActivity, toClientPipeline } from "@/lib/serialize";
+import { toClientActivity, toClientPipeline, toClientReleaseBar } from "@/lib/serialize";
+import { listReleasePlans, releaseBars } from "@/lib/releases";
 import { PageHeader, PageGuidance } from "@/components/PageHeader";
+import { Icon } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +78,12 @@ export default async function CalendarPage({
     activeFilter === "all" ? true : activeFilter === "active" ? a.active === 1 : a.active !== 1
   );
 
+  // Release QA windows overlap the visible grid — they are merged into the day
+  // cells (and the FTE calendar) rather than copied into the activity ledger.
+  const releasePlans = listReleasePlans(viewer, { from: grid.start, to: grid.end });
+  const releaseWindowBars = releaseBars(viewer, grid.start, grid.end);
+  const releaseFteDays = Math.round(releasePlans.reduce((sum, plan) => sum + plan.fte_days, 0) * 100) / 100;
+
   const pipeline = listPipeline(viewer).filter(
     (p) => p.effective_start && p.effective_end && p.effective_start < monthEndIso && p.effective_end >= monthStartIso
   );
@@ -117,7 +125,9 @@ export default async function CalendarPage({
         description="Fiscal-year month grid built from the activity ledger. Active activities render by default — switch the Active/Inactive/All filter to include inactive records. Weekends, NSW public holidays, today and the current week are highlighted."
         meta={
           <>
-            {activeInMonth.length} {activeFilter === "all" ? "" : `${activeFilter} `}activities · {grid.workingDays} working days · Q{quarterForMonth} {selectedYear}
+            {activeInMonth.length} {activeFilter === "all" ? "" : `${activeFilter} `}activities ·{" "}
+            {releasePlans.length} release window{releasePlans.length === 1 ? "" : "s"} · {grid.workingDays} working days
+            · Q{quarterForMonth} {selectedYear}
           </>
         }
       />
@@ -198,6 +208,7 @@ export default async function CalendarPage({
           todayIso={today}
           activities={activeInMonth.map(toClientActivity)}
           pipeline={pipeline.map(toClientPipeline)}
+          releases={releaseWindowBars.map(toClientReleaseBar)}
           people={people}
           departments={departments}
           legend={legend}
@@ -206,6 +217,79 @@ export default async function CalendarPage({
           path="/calendar"
           initialActivityId={params.activity ?? null}
         />
+      </Section>
+
+      <Section
+        id="sec.calendar.releases"
+        tabId="tab.calendar"
+        title="Release QA windows in this month"
+        description="Read-only projection of Releases → QA windows & assignees. Removing a release window is done in the Releases tab; nothing here is copied into the activity ledger."
+        path="/calendar"
+        canEdit={canEdit(viewer)}
+      >
+        <div className="card-pad stack">
+          <div className="row-between" style={{ gap: 10, flexWrap: "wrap" }}>
+            <span className="card-sub">
+              {releasePlans.length} release window{releasePlans.length === 1 ? "" : "s"} overlap {monthLabel(monthStartIso)}
+              {" · "}
+              {releaseFteDays} FTE-days of QA effort
+            </span>
+            <a className="btn btn-sm" href="/releases">
+              <Icon name="external" size={13} /> Manage in Releases
+            </a>
+          </div>
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Release</th>
+                  <th>QA window</th>
+                  <th className="num">Working days</th>
+                  <th>Assignees</th>
+                  <th className="num">FTE / day</th>
+                  <th className="num">FTE-days</th>
+                </tr>
+              </thead>
+              <tbody>
+                {releasePlans.map((plan) => (
+                  <tr key={plan.id}>
+                    <td className="mono">{plan.version}</td>
+                    <td className="mono nowrap">
+                      {plan.qa_start_date ?? "—"} → {plan.qa_end_date ?? "—"}
+                    </td>
+                    <td className="num">{plan.working_days || "—"}</td>
+                    <td>
+                      {plan.assignees.length ? (
+                        <span className="row" style={{ gap: 5, flexWrap: "wrap" }}>
+                          {plan.assignees.map((assignee) => (
+                            <span className="badge badge-slate" key={assignee.id}>
+                              <span className="legend-swatch" style={{ background: assignee.colour }} /> {assignee.name} ·{" "}
+                              {assignee.fte} FTE
+                            </span>
+                          ))}
+                        </span>
+                      ) : (
+                        <span className="badge badge-amber">Unassigned — effort unknown</span>
+                      )}
+                    </td>
+                    <td className="num">{plan.fte_per_day || "—"}</td>
+                    <td className="num">{plan.fte_days}</td>
+                  </tr>
+                ))}
+                {!releasePlans.length ? (
+                  <tr>
+                    <td colSpan={6}>
+                      <div className="empty">
+                        No release QA window overlaps this month. Add dates and assignees in the Releases tab and they
+                        will appear here and on the FTE calendar.
+                      </div>
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </Section>
 
       <Section

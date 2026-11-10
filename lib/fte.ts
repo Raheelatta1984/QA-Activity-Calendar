@@ -13,6 +13,7 @@ import {
 } from "./dates";
 import { holidayMap } from "./pipeline";
 import { appSettings } from "./settings";
+import { RELEASE_GROUP, releaseDemandRows } from "./releases";
 
 /**
  * FTE calendar — planned activity × day demand with totals.
@@ -63,8 +64,15 @@ export type FteCell = {
   active: boolean;
 };
 
+/** Where a demand row came from: an activity record or a release QA window. */
+export type FteRowKind = "activity" | "release";
+
 export type FteActivityRow = {
   id: string;
+  /** `release` rows are merged from `release_feed` + `release_assignees`. */
+  kind: FteRowKind;
+  /** Where a click on the row should go (release rows are not activities). */
+  href: string;
   code: string | null;
   activity: string;
   detail: string | null;
@@ -117,7 +125,12 @@ export type FteGroupRollup = {
 };
 
 export type FteTotals = {
+  /** Activity rows in the matrix (release rows are counted separately). */
   activities: number;
+  /** Release QA-window rows in the matrix. */
+  releases: number;
+  /** Demand contributed by release QA windows, in FTE-days. */
+  release_fte_days: number;
   people: number;
   /** Σ FTE over every calendar day in range. */
   fte_days: number;
@@ -172,6 +185,8 @@ export type FteCalendarResult = {
 };
 
 export type FteFilters = {
+  /** Merge release QA-window demand into the matrix (default true). */
+  includeReleases?: boolean;
   range?: FteRange;
   monthKey?: string;
   quarter?: number | null;
@@ -281,7 +296,103 @@ export function fteCalendar(viewer: Viewer, filters: FteFilters = {}): FteCalend
     ? activities.filter((a) => !NON_TESTING_GROUPS.includes(a.activity_group as (typeof NON_TESTING_GROUPS)[number]))
     : activities;
 
-  const rows: FteActivityRow[] = visible.map((activity) => {
+  /**
+   * A demand row is anything that consumes FTE on a day: an activity record or
+   * a release QA window (one row per assignee). Both are normalised here so the
+   * matrix, the daily totals and the per-person roll-ups treat them alike — a
+   * release can no longer sit outside the capacity picture.
+   */
+  type DemandInput = {
+    id: string;
+    kind: FteRowKind;
+    href: string;
+    code: string | null;
+    activity: string;
+    detail: string | null;
+    group: string;
+    colour: string;
+    status: string;
+    priority: string;
+    department_id: string | null;
+    department_name: string;
+    department_colour: string;
+    assignee_id: string | null;
+    assignee_name: string;
+    start_date: string | null;
+    end_date: string | null;
+    duration_days: number | null;
+    effective_fte: number;
+    derived_progress: number;
+  };
+
+  const activityInputs: DemandInput[] = visible.map((activity) => ({
+    id: activity.id,
+    kind: "activity",
+    href: `/calendar?month=${(activity.start_date ?? start).slice(0, 7)}&activity=${activity.id}`,
+    code: activity.code,
+    activity: activity.activity,
+    detail: activity.detail,
+    group: activity.activity_group,
+    colour: activity.colour,
+    status: activity.status,
+    priority: activity.priority,
+    department_id: activity.department_id,
+    department_name: activity.department_name,
+    department_colour: activity.department_colour,
+    assignee_id: activity.assignee_id,
+    assignee_name: activity.assignee_name,
+    start_date: activity.start_date,
+    end_date: activity.end_date,
+    duration_days: activity.duration_days,
+    effective_fte: activity.effective_fte,
+    derived_progress: activity.derived_progress,
+  }));
+
+  const searchTerm = (filters.search ?? "").trim().toLowerCase();
+  const personDepartment = new Map(viewer.org.people.map((person) => [person.id, person.department_id]));
+  const releaseInputs: DemandInput[] =
+    filters.includeReleases === false
+      ? []
+      : releaseDemandRows(viewer, start, end)
+          .filter(
+            (row) =>
+              !departmentId ||
+              row.department_id === departmentId ||
+              (!!row.assignee_id && personDepartment.get(row.assignee_id) === departmentId)
+          )
+          .filter((row) => !filters.group || row.group === filters.group)
+          .filter((row) => !filters.assigneeId || row.assignee_id === filters.assigneeId)
+          .filter(
+            (row) =>
+              !searchTerm ||
+              `${row.activity} ${row.detail ?? ""} ${row.assignee_name}`.toLowerCase().includes(searchTerm)
+          )
+          .map((row) => ({
+            id: row.id,
+            kind: "release" as const,
+            href: "/releases",
+            code: null,
+            activity: row.activity,
+            detail: row.detail,
+            group: row.group,
+            colour: row.colour,
+            status: row.status,
+            priority: row.priority,
+            department_id: row.department_id,
+            department_name: row.department_name,
+            department_colour: row.department_colour,
+            assignee_id: row.assignee_id,
+            assignee_name: row.assignee_name,
+            start_date: row.start_date,
+            end_date: row.end_date,
+            duration_days: row.duration_days,
+            effective_fte: row.fte,
+            derived_progress: row.progress,
+          }));
+
+  const inputs: DemandInput[] = [...activityInputs, ...releaseInputs];
+
+  const rows: FteActivityRow[] = inputs.map((activity) => {
     const cells: FteCell[] = days.map((day) => {
       const active =
         !!activity.start_date && !!activity.end_date && activity.start_date <= day.date && activity.end_date >= day.date;
@@ -291,10 +402,12 @@ export function fteCalendar(viewer: Viewer, filters: FteFilters = {}): FteCalend
     const totalWorking = round(cells.reduce((sum, c, index) => (days[index].working ? sum + c.fte : sum), 0));
     return {
       id: activity.id,
+      kind: activity.kind,
+      href: activity.href,
       code: activity.code,
       activity: activity.activity,
       detail: activity.detail,
-      group: activity.activity_group,
+      group: activity.group,
       colour: activity.colour,
       status: activity.status,
       priority: activity.priority,
@@ -318,6 +431,7 @@ export function fteCalendar(viewer: Viewer, filters: FteFilters = {}): FteCalend
 
   rows.sort((a, b) => {
     if (a.start_date !== b.start_date) return (a.start_date ?? "9999-12-31") < (b.start_date ?? "9999-12-31") ? -1 : 1;
+    if (a.kind !== b.kind) return a.kind === "activity" ? -1 : 1;
     return a.activity.localeCompare(b.activity);
   });
 
@@ -438,8 +552,11 @@ export function fteCalendar(viewer: Viewer, filters: FteFilters = {}): FteCalend
   ).length;
 
   const workingCount = Math.max(1, workingDays.length);
+  const releaseRows = rows.filter((row) => row.kind === "release");
   const totals: FteTotals = {
-    activities: rows.length,
+    activities: rows.length - releaseRows.length,
+    releases: releaseRows.length,
+    release_fte_days: round(releaseRows.reduce((sum, row) => sum + row.total_fte_working, 0)),
     people: new Set(rows.map((r) => r.assignee_id).filter(Boolean)).size,
     fte_days: fteDays,
     fte_days_working: fteDaysWorking,

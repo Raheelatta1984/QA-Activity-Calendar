@@ -14,7 +14,17 @@ export const dynamic = "force-dynamic";
 export default async function FtePage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; month?: string; quarter?: string; dept?: string; group?: string; assignee?: string; testing?: string; q?: string }>;
+  searchParams: Promise<{
+    range?: string;
+    month?: string;
+    quarter?: string;
+    dept?: string;
+    group?: string;
+    assignee?: string;
+    testing?: string;
+    releases?: string;
+    q?: string;
+  }>;
 }) {
   const viewer = await getViewer();
   const settings = appSettings();
@@ -34,8 +44,11 @@ export default async function FtePage({
     group: params.group || null,
     assigneeId: params.assignee || null,
     testingOnly: params.testing !== "0",
+    includeReleases: params.releases !== "0",
     search: params.q ?? "",
   });
+
+  const releasesIncluded = params.releases !== "0";
 
   const monthOptions = Array.from({ length: 15 }, (_, i) => {
     const key = addMonths(`${today.slice(0, 7)}-01`, i - 6).slice(0, 7);
@@ -75,6 +88,7 @@ export default async function FtePage({
         meta={
           <>
             {calendar.label} · {totals.activities} testing activit{totals.activities === 1 ? "y" : "ies"} ·{" "}
+            {releasesIncluded ? `${totals.releases} release window${totals.releases === 1 ? "" : "s"} · ` : ""}
             {totals.working_days} working days · {calendar.scope.department_name}
             {calendar.scope.testing_only ? " · testing activity only" : ""}
           </>
@@ -110,6 +124,7 @@ export default async function FtePage({
           people={people}
           assigneeId={calendar.scope.assignee_id}
           testingOnly={calendar.scope.testing_only}
+          releasesIncluded={releasesIncluded}
           search={calendar.scope.search}
         />
       </Section>
@@ -172,6 +187,18 @@ export default async function FtePage({
               {totals.over_days.length
                 ? totals.over_days.slice(0, 3).map((d) => `${d.date.slice(5)} (${d.fte})`).join(", ")
                 : `within ${totals.headcount} available people`}
+            </div>
+          </div>
+          <div className="kpi" style={{ ["--kpi-accent" as string]: "var(--purple)" }}>
+            <div className="kpi-label">Release QA demand</div>
+            <div className="kpi-value">
+              {totals.release_fte_days}
+              <small>FTE-days</small>
+            </div>
+            <div className="kpi-foot">
+              {releasesIncluded
+                ? `${totals.releases} release window${totals.releases === 1 ? "" : "s"} merged from the Releases tab`
+                : "release windows excluded from this view"}
             </div>
           </div>
           <div className="kpi" style={{ ["--kpi-accent" as string]: "var(--accent)" }}>
@@ -244,6 +271,8 @@ export default async function FtePage({
           }))}
           rows={calendar.rows.map((row) => ({
             id: row.id,
+            kind: row.kind,
+            href: row.href,
             code: row.code,
             activity: row.activity,
             detail: row.detail,

@@ -486,7 +486,35 @@ html[data-theme="light"] .badge-orange { color: #c2410c; }
 .cal-chip.cont-left { border-top-left-radius: 2px; border-bottom-left-radius: 2px; }
 .cal-chip.cont-right { border-top-right-radius: 2px; border-bottom-right-radius: 2px; }
 .cal-chip.pipeline { background: var(--surface-3); color: var(--text-dim); border: 1px dashed var(--border-strong); }
+.cal-chip.release {
+  background: color-mix(in srgb, #a855f7 24%, transparent);
+  color: #f3e8ff;
+  border: 1px solid color-mix(in srgb, #a855f7 55%, transparent);
+  text-decoration: none;
+  letter-spacing: 0.01em;
+}
 .cal-more { font-size: 0.64rem; color: var(--muted); padding-left: 3px; }
+
+/* ------------------------------------------- release planner (Releases tab) -- */
+.assignee-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 6px;
+}
+.assignee-row {
+  display: grid;
+  grid-template-columns: auto 8px minmax(0, 1fr) 72px auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.assignee-row.is-assigned { border-color: color-mix(in srgb, var(--purple) 55%, transparent); }
+.assignee-name { display: flex; flex-direction: column; min-width: 0; }
+.assignee-name strong { font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assignee-fte { width: 72px; }
 
 /* ---------------------------------------------------------------- drawer -- */
 .drawer-backdrop {

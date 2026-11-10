@@ -189,3 +189,69 @@ letting a demo row overwrite an imported one. Demo data is the fallback, not the
 authority.
 **Pinned by:** `tests/bootstrap-resilience.test.mts` (imported-ref collision and
 repeat bootstrap).
+
+## 32. Postgres is a driver, not a rewrite
+
+**Decision:** the data layer is a driver-agnostic facade (`lib/database`). The
+SQLite driver (`node:sqlite`) is the local default; the Postgres driver
+(`pg`) is used whenever `DATABASE_URL` is set. Both expose the *same synchronous*
+`all/get/run/exec/transaction` API, so every module keeps writing one dialect of
+SQL and no page, action, script or test knows which store is behind it.
+
+**Why synchronous, in 2026:** the whole application is written against a
+synchronous DB surface — server components, server actions, the seed, the
+import pipeline, the validation scan. Turning that async to suit `pg` would
+touch hundreds of call sites and every test, with no user-visible benefit.
+Instead the Postgres driver runs `pg` in a worker thread and blocks the calling
+thread on `Atomics.wait`, posting the request through `workerData`/`postMessage`.
+The cost (one worker per process) buys a single code path, and the API is the
+same one the SQLite driver already had.
+
+**Schema, without a second source of truth:** the migration files stay the
+SQLite-flavoured SQL the app has always used. On a fresh Postgres database the
+driver replays them into an in-memory SQLite engine, converts `sqlite_master`
+into Postgres DDL (`lib/database/pg-schema.ts`) and applies it as the baseline
+`pg-baseline@005_release_planning.sql`. Migrations added later are translated per
+statement (`lib/database/dialect.ts`). Two hand-maintained schemas would drift;
+a generated one cannot. Anything without an equivalent (`sqlite_master`,
+`rowid`, `INSERT OR REPLACE`) throws instead of being silently mangled.
+
+**Fallback is loud or absent:** a missing/unreachable database falls back to
+SQLite so a laptop always runs, but `DATABASE_REQUIRE_POSTGRES=true` (and
+`DATABASE_DRIVER=postgres`) makes that impossible in production, and
+`/api/health` always reports `driver`, `durable` and `fallbackReason`.
+
+**Consequences:** `pg` must stay a real node package (`serverExternalPackages`)
+because the bridge `require()`s it at runtime; a pool of one still works because
+statements inside a transaction use the reserved client; PGlite is a
+devDependency that lets CI exercise the real driver over the Postgres wire
+protocol.
+
+**Pinned by:** `tests/postgres.test.mts` (translation, schema generation,
+baseline), `tests/postgres-driver.test.mts` (live driver: migration, queries,
+constraints, transactions, release/FTE reads) and `tests/releases.test.mts`
+(release windows and FTE).
+
+## 33. A release contributes FTE through its window and assignees
+
+**Decision:** `release_feed` carries an inclusive QA window
+(`qa_start_date`/`qa_end_date`) and `release_assignees` carries the people and
+their FTE share **per working day**. Release demand = Σ shares × working days in
+the window (Mon–Fri minus NSW holidays), hours = FTE-days × the configured day
+length. The same computation feeds the Releases tab, the QA calendar (`REL`
+chips over the days) and the FTE calendar (a `Release` group with its own rows
+and a per-day column contribution).
+
+**Why:** a single release date cannot answer "how much QA is this release and
+when", and a release with a window but no assignees would inflate demand with
+nobody to do the work. So a window without assignees is an explicit `Unassigned`
+row with 0 FTE and a `release.qa_window_unassigned` warning — visible, never
+invented.
+
+**Never:** storing FTE-days as the input (a window edit would silently change
+effort — the share is the input, effort is derived), deriving release demand
+from activities (a release is governance, not an activity; it must not appear as
+one), or counting calendar days (weekends and NSW holidays are not effort).
+
+**Pinned by:** `tests/releases.test.mts` (window maths, FTE-days, unassigned
+gap, validation, cascade delete, calendar/FTE integration).
