@@ -131,6 +131,11 @@ export const TAB_CATALOGUE: TabSeed[] = [
     sort: 60,
     sections: [
       { id: "sec.releases.feed", label: "Release feed", description: "Version, self-update and auto-update schedule entries." },
+      {
+        id: "sec.releases.planning",
+        label: "QA window, assignees & release FTE",
+        description: "Inclusive QA window, assignees with per-day FTE, and the derived FTE-days that feed the QA and FTE calendars.",
+      },
       { id: "sec.releases.pqu", label: "PQU schedule", description: "Release train, change cutoff and parses flagged for suspicion." },
       { id: "sec.releases.governance", label: "Release governance", description: "Regression status, go/no-go and deployment status decisions." },
     ],
@@ -315,6 +320,25 @@ export const CHANGELOG_ENTRIES: Array<{
     pr: null,
   },
   {
+    version: "1.6.0",
+    title: "Real database (Postgres) and release QA windows",
+    offset: 0,
+    type: "feature",
+    summary:
+      "The workspace now persists to Postgres when DATABASE_URL is set, and a release carries a QA window (from/to) with assignees whose FTE flows into the Releases tab, the QA calendar and the FTE calendar.",
+    items: [
+      "Postgres driver behind the same synchronous data layer — select it with DATABASE_URL, no code change; SQLite stays the local default",
+      "Schema for Postgres is generated from the SQLite migrations, so both stores share one definition; `/api/health` reports driver, durability and fallback reason",
+      "DATABASE_REQUIRE_POSTGRES makes a connection failure a startup error instead of a silent fallback to a local file",
+      "Releases: QA window from/to plus multiple assignees with a per-working-day FTE share on the Releases tab",
+      "Release demand = shares x working days (Mon-Fri less NSW holidays); hours convert through the configured day length",
+      "The QA calendar shows release windows as REL chips and the FTE calendar gains a Release group with its per-day contribution",
+      "A window with no assignees is an explicit Unassigned row with 0 FTE and a validation warning — never guessed",
+      "Live Postgres contract test (PGlite over the wire protocol) plus release FTE tests — 142 tests",
+    ],
+    pr: null,
+  },
+  {
     version: "1.5.1",
     title: "Bridge applies remote stage changes",
     offset: 0,
@@ -454,6 +478,8 @@ export const AI_NOTES: Record<string, string> = {
     "AI guidance · Planned and actual deployment dates are separate fields. A planned go-live is never treated as approval.",
   "sec.releases.pqu":
     "AI guidance · Parsed date ranges are flagged for review rather than silently corrected — check chronology before publishing.",
+  "sec.releases.planning":
+    "AI guidance · A release date is not effort. Give the QA window inclusive dates and assign the people who do the work with the FTE each carries per working day. Working days exclude weekends and NSW public holidays, so FTE-days = Σ FTE × working days; the same numbers appear on the QA calendar and the FTE calendar. A window with no assignees is shown as 'effort unknown', never as zero.",
   "tab.enhancements":
     "AI guidance · Describe the pain, not the solution. The assistant drafts a title and success criteria you can edit before submitting.",
   "sec.enhancements.intake":
@@ -915,19 +941,42 @@ export function seedDemoData() {
       ["27.4.1", "Self Update", 12, "Planned follow-up", "", 0],
       ["27.5.0", "Auto Update", 40, "Planned — change freeze applies", "", 0],
     ];
-    feed.forEach(([version, kind, off, notes, link, verified]) =>
+    // QA windows + assignees: the demo must show release effort on the QA and
+    // FTE calendars, and must also show one deliberate gap (no assignees).
+    const feedPlan: Record<string, { from: number; to: number; assignees: Array<[string, number]> }> = {
+      "27.4.0": { from: -12, to: -2, assignees: [["p_sofia", 0.6], ["p_tom", 0.4]] },
+      "27.3.2": { from: -22, to: -16, assignees: [["p_sofia", 0.5]] },
+      "27.3.1": { from: -34, to: -30, assignees: [["p_hana", 0.5]] },
+      "27.3.0": { from: -52, to: -45, assignees: [["p_tom", 0.5], ["p_hana", 0.25]] },
+      "27.4.1": { from: 6, to: 12, assignees: [["p_sofia", 0.5], ["p_oliver", 0.25]] },
+      "27.5.0": { from: 30, to: 40, assignees: [] },
+    };
+    feed.forEach(([version, kind, off, notes, link, verified]) => {
+      const plan = feedPlan[version];
+      const releaseId = uid("rf");
       run(
-        `INSERT INTO release_feed (id, version, kind, date, notes, link, link_verified, department_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'dept_rel')`,
-        uid("rf"),
+        `INSERT INTO release_feed (id, version, kind, date, notes, link, link_verified, department_id, qa_start_date, qa_end_date)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'dept_rel', ?, ?)`,
+        releaseId,
         version,
         kind,
         d(off),
         notes,
         link || null,
-        verified
-      )
-    );
+        verified,
+        plan ? d(plan.from) : null,
+        plan ? d(plan.to) : null
+      );
+      for (const [personId, fte] of plan?.assignees ?? []) {
+        run(
+          `INSERT INTO release_assignees (id, release_id, person_id, role, fte) VALUES (?, ?, ?, 'QA', ?)`,
+          uid("rla"),
+          releaseId,
+          personId,
+          fte
+        );
+      }
+    });
 
     const trains: Array<[string, number, number, string, string, string, string | null]> = [
       ["PQU 27.4", 4, 14, "In progress", "27.4.0", "2026.10", null],

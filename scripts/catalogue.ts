@@ -4,9 +4,9 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { all, getDb } from "../lib/db";
+import { all, initDb } from "../lib/db";
 
-getDb();
+initDb();
 const tabs = all<any>(`SELECT * FROM tabs ORDER BY sort_order`);
 const sections = all<any>(`SELECT * FROM sections ORDER BY tab_id, sort_order`);
 

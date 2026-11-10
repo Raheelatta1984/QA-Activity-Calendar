@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { ClientActivity, ClientDepartment, ClientPerson, ClientPipeline, DayMeta } from "./types";
+import type { ClientActivity, ClientDepartment, ClientPerson, ClientPipeline, ClientReleaseBar, DayMeta } from "./types";
 import { ActivityForm } from "./ActivityForm";
 import { Icon } from "./icons";
 import { recordActualAction } from "@/app/actions/activities";
@@ -31,6 +31,7 @@ export function CalendarBoard({
   todayIso,
   activities,
   pipeline,
+  releases = [],
   people,
   departments,
   legend,
@@ -49,6 +50,8 @@ export function CalendarBoard({
   todayIso: string;
   activities: ClientActivity[];
   pipeline: ClientPipeline[];
+  /** Release QA windows merged from the Releases tab (synthetic bars). */
+  releases?: ClientReleaseBar[];
   people: ClientPerson[];
   departments: ClientDepartment[];
   legend: { name: string; hex: string }[];
@@ -70,7 +73,10 @@ export function CalendarBoard({
   const [editing, setEditing] = useState<ClientActivity | null>(null);
   const [newDate, setNewDate] = useState<string>(todayIso);
 
-  const groups = useMemo(() => [...new Set(activities.map((a) => a.group))].sort(), [activities]);
+  const groups = useMemo(
+    () => [...new Set([...activities.map((a) => a.group), ...releases.map(() => "Release")])].sort(),
+    [activities, releases]
+  );
 
   const filteredActivities = useMemo(
     () =>
@@ -98,6 +104,21 @@ export function CalendarBoard({
         return true;
       }),
     [pipeline, assignee, query, people]
+  );
+
+  /** Release QA windows are filtered by the same scope controls as activities. */
+  const releaseBars = useMemo(
+    () =>
+      releases.filter((release) => {
+        if (group !== "all" && group !== "Release") return false;
+        if (assignee === "unassigned" && release.assignee_ids.length) return false;
+        if (assignee !== "all" && assignee !== "unassigned" && !release.assignee_ids.includes(assignee)) return false;
+        if (status !== "all" && release.status !== status) return false;
+        const term = query.trim().toLowerCase();
+        if (term) return `${release.version} ${release.assignee_names} release`.toLowerCase().includes(term);
+        return true;
+      }),
+    [releases, group, assignee, status, query]
   );
 
   function navigate(next: Record<string, string | number | null>) {
@@ -304,9 +325,13 @@ export function CalendarBoard({
                     (p) => p.effective_start && p.effective_end && p.effective_start <= day.date && p.effective_end >= day.date
                   )
                 : [];
-              const total = dayActivities.length + dayPipeline.length;
+              const dayReleases = showQa
+                ? releaseBars.filter((release) => release.start_date <= day.date && release.end_date >= day.date)
+                : [];
+              const total = dayActivities.length + dayPipeline.length + dayReleases.length;
               const shown = dayActivities.slice(0, 3);
-              const pipelineShown = dayPipeline.slice(0, Math.max(0, 3 - shown.length));
+              const pipelineShown = dayPipeline.slice(0, Math.max(0, 3 - shown.length - Math.min(dayReleases.length, 1)));
+              const releaseShown = dayReleases.slice(0, 1);
 
               return (
                 <div
@@ -334,6 +359,20 @@ export function CalendarBoard({
                     {day.isHoliday ? <span className="cal-holiday-tag">{day.holidayName}</span> : null}
                   </div>
                   <div className="cal-items">
+                    {releaseShown.map((release) => (
+                      <a
+                        key={`${release.release_id}-${day.date}`}
+                        className={`cal-chip release ${release.start_date !== day.date ? "cont-left" : ""} ${
+                          release.end_date !== day.date ? "cont-right" : ""
+                        }`}
+                        href="/releases"
+                        title={`Release ${release.version} · QA ${release.start_date} → ${release.end_date} · ${
+                          release.assignee_names
+                        } · ${release.fte_per_day} FTE/day · ${release.fte_days} FTE-days (${release.working_days} working days)`}
+                      >
+                        REL {release.version}
+                      </a>
+                    ))}
                     {shown.map((a) => {
                       const continuesLeft = a.start_date !== day.date;
                       const continuesRight = a.end_date !== day.date;
@@ -364,8 +403,10 @@ export function CalendarBoard({
                         REC · {p.activity}
                       </button>
                     ))}
-                    {total > shown.length + pipelineShown.length ? (
-                      <span className="cal-more">+{total - shown.length - pipelineShown.length} more</span>
+                    {total > shown.length + pipelineShown.length + releaseShown.length ? (
+                      <span className="cal-more">
+                        +{total - shown.length - pipelineShown.length - releaseShown.length} more
+                      </span>
                     ) : null}
                   </div>
                 </div>
@@ -386,6 +427,9 @@ export function CalendarBoard({
           <span>
             <span className="legend-swatch" style={{ background: "var(--surface-3)", border: "1px dashed var(--border-strong)" }} />{" "}
             Recording pipeline
+          </span>
+          <span>
+            <span className="legend-swatch" style={{ background: "#a855f7" }} /> Release QA window (Releases tab)
           </span>
           <span>Current week tinted · today outlined</span>
         </div>

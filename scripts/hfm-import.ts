@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { getDb, migrate, dbFile, backup } from "../lib/db";
+import { backup, dbInfo, getDb, initDb, migrate } from "../lib/db";
 import { runHfmImport, rollbackHfmImport, verifyHfmImport, EXPECTED_COUNTS } from "../lib/hfm-import";
 
 /**
@@ -31,8 +31,8 @@ function arg(flag: string): string | undefined {
 const has = (flag: string) => process.argv.includes(flag);
 
 async function main() {
-  const db = getDb();
-  migrate(db);
+  initDb();
+  migrate();
   const jsonOnly = has("--json");
   const reportPath = arg("--report");
   const actorName = arg("--actor") ?? null;
@@ -61,12 +61,20 @@ async function main() {
   const apply = has("--apply");
   let backupPath: string | null = null;
   if (apply && !has("--no-backup")) {
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const dir = path.join(process.cwd(), "data", "backups");
-    fs.mkdirSync(dir, { recursive: true });
-    backupPath = path.join(dir, `qa-calendar-pre-hfm-import-${stamp}.db`);
-    await backup(db, backupPath);
-    if (!jsonOnly) console.log(`Pre-import backup written to ${backupPath}`);
+    if (dbInfo().driver === "postgres") {
+      if (!jsonOnly) {
+        console.log(
+          "Postgres is the active store: take a snapshot with pg_dump or rely on the provider's backups before applying."
+        );
+      }
+    } else {
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const dir = path.join(process.cwd(), "data", "backups");
+      fs.mkdirSync(dir, { recursive: true });
+      backupPath = path.join(dir, `qa-calendar-pre-hfm-import-${stamp}.db`);
+      await backup(getDb(), backupPath);
+      if (!jsonOnly) console.log(`Pre-import backup written to ${backupPath}`);
+    }
   }
 
   const report = runHfmImport({ apply, actorId: null, actorName, requestedBy, backupPath });
@@ -100,7 +108,7 @@ function printVerification(result: ReturnType<typeof verifyHfmImport>, jsonOnly:
 function printReport(report: ReturnType<typeof runHfmImport>) {
   const line = (label: string, value: unknown) => console.log(`  ${label.padEnd(34)} ${value}`);
   console.log(`HFM import — ${report.mode.toUpperCase()} (${report.startedAt})`);
-  console.log(`Database: ${dbFile}`);
+  console.log(`Database: ${dbInfo().target}`);
   console.log(`Requested by: ${report.requestedBy}   Executor: ${report.executor}`);
   if (report.backupPath) console.log(`Backup: ${report.backupPath}`);
   console.log("\nOrganisation:");

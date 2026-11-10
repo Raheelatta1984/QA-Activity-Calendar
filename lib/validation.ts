@@ -85,6 +85,29 @@ export const RULE_CATALOGUE: { rule: string; severity: string; description: stri
     description: "Release feed link has not been verified. Links are never fetched or auto-executed.",
   },
   {
+    rule: "release.qa_window_missing",
+    severity: "info",
+    description:
+      "Release has no QA window (from/to). Without dates the release contributes no FTE to the QA or FTE calendar.",
+  },
+  {
+    rule: "release.qa_window_invalid",
+    severity: "error",
+    description:
+      "Release QA window is incomplete or ends before it starts. Dates are inclusive, so a resourced window needs start <= end.",
+  },
+  {
+    rule: "release.qa_window_unassigned",
+    severity: "warning",
+    description:
+      "Release QA window has no assignees. Release effort is unknown, not zero — assign at least one person with an FTE share.",
+  },
+  {
+    rule: "release.qa_window_after_release",
+    severity: "warning",
+    description: "Release QA window ends after the release (deployment) date. Flagged for a human, never silently moved.",
+  },
+  {
     rule: "enhancement.missing_success",
     severity: "info",
     description: "Enhancement has no success criteria, so it cannot be accepted into the development pipeline.",
@@ -278,6 +301,57 @@ export function detectIssues(): Issue[] {
         entity_id: decision.id,
         rule: "governance.go_without_regression",
         message: `${decision.version}: Go decision while regression is ${decision.regression_status}.`,
+      });
+    }
+  }
+
+  // Release QA windows feed the QA and FTE calendars, so their gaps are data
+  // quality issues rather than cosmetic ones.
+  const releaseAssignees = new Map<string, number>();
+  for (const row of all<{ release_id: string; n: number }>(
+    `SELECT release_id, COUNT(*) AS n FROM release_assignees GROUP BY release_id`
+  )) {
+    releaseAssignees.set(row.release_id, Number(row.n));
+  }
+  for (const release of all<any>(`SELECT * FROM release_feed`)) {
+    const from = release.qa_start_date as string | null;
+    const to = release.qa_end_date as string | null;
+    if (!from && !to) {
+      issues.push({
+        severity: "info",
+        entity: "release_feed",
+        entity_id: release.id,
+        rule: "release.qa_window_missing",
+        message: `${release.version}: no QA window — it cannot be resourced or shown on the calendars.`,
+      });
+      continue;
+    }
+    if (!isValidRange(from, to)) {
+      issues.push({
+        severity: "error",
+        entity: "release_feed",
+        entity_id: release.id,
+        rule: "release.qa_window_invalid",
+        message: `${release.version}: QA window ${from ?? "?"} → ${to ?? "?"} is incomplete or reversed.`,
+      });
+      continue;
+    }
+    if (!(releaseAssignees.get(release.id) ?? 0)) {
+      issues.push({
+        severity: "warning",
+        entity: "release_feed",
+        entity_id: release.id,
+        rule: "release.qa_window_unassigned",
+        message: `${release.version}: QA window ${from} → ${to} has no assignees — effort is unknown, not zero.`,
+      });
+    }
+    if (isIsoDate(release.date) && release.date < (to as string)) {
+      issues.push({
+        severity: "warning",
+        entity: "release_feed",
+        entity_id: release.id,
+        rule: "release.qa_window_after_release",
+        message: `${release.version}: QA window ends ${to} after the release date ${release.date}.`,
       });
     }
   }

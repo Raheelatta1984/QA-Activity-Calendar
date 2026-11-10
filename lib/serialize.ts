@@ -1,6 +1,7 @@
 import type { ActivityView } from "./activities";
 import type { PipelineView } from "./pipeline";
-import type { ClientActivity, ClientPipeline } from "@/components/types";
+import type { ClientActivity, ClientPipeline, ClientReleaseBar } from "@/components/types";
+import type { ReleaseBar } from "./releases";
 
 export function toClientActivity(a: ActivityView): ClientActivity {
   return {
@@ -72,5 +73,23 @@ export function toClientPipeline(p: PipelineView): ClientPipeline {
     blocked_days: p.blocked_days,
     warnings: p.warnings,
     notes: p.notes,
+  };
+}
+
+/** Release QA window as a calendar bar (synthetic — never editable as an activity). */
+export function toClientReleaseBar(bar: ReleaseBar): ClientReleaseBar {
+  return {
+    release_id: bar.release_id,
+    version: bar.version,
+    kind: bar.kind,
+    start_date: bar.start_date,
+    end_date: bar.end_date,
+    colour: bar.colour,
+    status: bar.status,
+    assignee_names: bar.assignee_names,
+    assignee_ids: bar.assignee_ids,
+    fte_per_day: bar.fte_per_day,
+    working_days: bar.working_days,
+    fte_days: bar.fte_days,
   };
 }

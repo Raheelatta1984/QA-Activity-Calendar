@@ -90,3 +90,18 @@ export type DayMeta = {
   isToday: boolean;
   isCurrentWeek: boolean;
 };
+
+export type ClientReleaseBar = {
+  release_id: string;
+  version: string;
+  kind: string;
+  start_date: string;
+  end_date: string;
+  colour: string;
+  status: string;
+  assignee_names: string;
+  assignee_ids: string[];
+  fte_per_day: number;
+  working_days: number;
+  fte_days: number;
+};

@@ -10,7 +10,7 @@
  * audit entry recorded; never logs the password.
  */
 import readline from "node:readline";
-import { get, run, migrate, dbFile } from "../lib/db";
+import { dbInfo, get, run, migrate } from "../lib/db";
 import { hashPassword } from "../lib/auth";
 import { recordAudit } from "../lib/audit";
 
@@ -51,7 +51,7 @@ async function main() {
     meta: { email, note: "Password set via operator script; value never logged" },
   });
   console.log(`Password set for ${person.name} <${person.email}>. Recorded in audit_events.`);
-  console.log(`Database: ${dbFile}`);
+  console.log(`Database (${dbInfo().driver}): ${dbInfo().target}`);
 }
 
 main().catch((err) => {

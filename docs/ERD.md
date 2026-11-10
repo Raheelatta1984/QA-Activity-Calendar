@@ -1,6 +1,6 @@
 # Data model & ERD
 
-SQLite is used for the runnable reference implementation (zero native dependencies, `node:sqlite`). The schema is portable SQL; the Postgres/Neon migration path is described at the end.
+One schema, two drivers. The app runs on **SQLite** (`node:sqlite`, zero native dependencies — the local/dev default) or **Postgres** (`DATABASE_URL`), selected by configuration only; the tables, keys, indices and queries below are identical on both. How the Postgres schema is derived, and how to operate it, is described at the end.
 
 ## Core relationships
 
@@ -61,7 +61,8 @@ erDiagram
 ### Releases
 | Table | Purpose |
 | --- | --- |
-| `release_feed` | Version, self/auto-update, date, link (unverified by default) |
+| `release_feed` | Version, self/auto-update, date, link (unverified by default), **QA window** (`qa_start_date`/`qa_end_date`, inclusive, NULL = not planned) and `qa_owner_id` |
+| `release_assignees` | People covering a release's QA window, each with a per-working-day FTE share; `UNIQUE(release_id, person_id)`; cascades from both parents |
 | `pqu_trains` | Release train, cutoff, duration, raw source text, `flag` |
 | `release_governance` | Regression, go/no-go, deployment, decision evidence |
 | `applications`, `backend_services` | Inventory used by defects and deployment plans |
@@ -96,20 +97,47 @@ erDiagram
 - `validation_issues` uniqueness enables idempotent re-scans.
 - `changelog(date DESC)` and `audit_events(at DESC)` support "latest first" reads.
 - `import_rows(batch_id)` supports batch audit.
+- `release_feed(qa_start_date, qa_end_date)` and `release_assignees(release_id)` / `(person_id)` support the calendar and FTE projections, which read release windows for a month or a person.
+- `release_assignees` is the only release→person link: a release contributes FTE demand through its assignees, never through an activity row.
 
-## Postgres / Neon migration path
+## Postgres / Neon
 
-The app talks to the database through `lib/db.ts` only. To move to Postgres:
+Postgres is implemented. `lib/database/postgres.ts` exposes the same synchronous
+`all/get/run/exec/transaction` surface as the SQLite driver by running `pg` in a
+worker thread and blocking on `Atomics.wait` — the rest of the app never knows
+which driver is active.
 
-1. Provision Neon (or any managed Postgres) and store the connection string in the secret store (`DATABASE_URL`).
-2. Port `db/migrations/001_init.sql`:
-   - `INTEGER` enable flags → `boolean` (or keep `smallint` for minimal churn).
-   - `TEXT` ISO dates → `date`; timestamps → `timestamptz`.
-   - `REAL` → `double precision` or `numeric(10,4)` for hours/FTE.
-   - `datetime('now')` → `now()`; `INSERT OR IGNORE` → `ON CONFLICT DO NOTHING`.
-   - Add row-level constraints for the same rules (inclusive dates checked in app + DB).
-3. Replace `lib/db.ts` with a `pg`-backed implementation exposing the same `all/get/run/transaction/setting` surface (or introduce Prisma with the schema above).
-4. Keep the same natural keys (`activities.code`, `recording_pipeline.code`, `people.email`) so imports remain idempotent.
-5. Re-run `npm test` against the adapter, then the import dry-run, then compare row counts with the workbook.
+**Schema delivery.** Migrations stay SQLite-flavoured SQL because that is what
+the app writes and what the test suite runs. On a fresh Postgres database the
+driver:
 
-Timezone: date-only fields stay `date`; event timestamps use `timestamptz` and render in `Australia/Sydney`.
+1. replays `db/migrations/*.sql` into an in-memory `node:sqlite` engine,
+2. reads the resulting schema from `sqlite_master` and emits Postgres DDL
+   (types, `DEFAULT` clauses, indices, foreign keys — in dependency order),
+3. applies it in one transaction and records `pg-baseline@005_release_planning.sql`
+   in `_migrations`.
+
+Migrations written after the baseline are translated statement by statement
+(`toPostgres` in `lib/database/dialect.ts`: `?` → `$n`, `datetime('now')` →
+`to_char(now() at time zone 'utc', …)`, `INSERT OR IGNORE` → `ON CONFLICT DO
+NOTHING`, `LIKE` → `ILIKE`, `IS ?` → `IS NOT DISTINCT FROM ?`, `PRAGMA` dropped,
+and a hard error for constructs with no equivalent such as `sqlite_master` or
+`rowid`). Because the baseline is generated from the SQLite schema, the two
+stores cannot drift into two hand-maintained definitions.
+
+**Operational contract**
+
+- `DATABASE_URL` selects Postgres; without it the SQLite file is used.
+- `DATABASE_REQUIRE_POSTGRES=true` turns a connection failure into a startup
+  error instead of a silent fallback to a local file.
+- `PG_POOL_MAX` bounds connections per process (default 5).
+- Inside a transaction all statements run on the reserved client, so a pool of
+  one is still correct for migrations and imports.
+- `/api/health` reports `driver`, `durable`, `target` (without credentials),
+  `baseline` and `fallbackReason`.
+- `tests/postgres-driver.test.mts` runs the real driver against Postgres (PGlite
+  behind the wire protocol) in CI.
+
+Date-only fields stay `date`-like text on both drivers (`YYYY-MM-DD`), and
+timestamps are stored as ISO text so a row written by one driver reads
+identically in the other.

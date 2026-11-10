@@ -1,6 +1,9 @@
-import { getDb, migrate, dbFile } from "../lib/db";
+import { dbInfo, initDb, migrate } from "../lib/db";
 
-const db = getDb();
-const applied = migrate(db);
-console.log(`Database: ${dbFile}`);
-console.log(applied.length ? `Applied ${applied.length} migration(s): ${applied.join(", ")}` : "No pending migrations.");
+initDb();
+const applied = migrate();
+const info = dbInfo();
+console.log(`Database (${info.driver}): ${info.target}`);
+console.log(
+  applied.length ? `Applied ${applied.length} migration(s): ${applied.join(", ")}` : "No pending migrations."
+);

@@ -8,7 +8,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { get, getDb } from "../lib/db";
+import { get, initDb } from "../lib/db";
 import { runImport, type ImportMode, type ImportTarget } from "../lib/import";
 
 function arg(name: string, fallback?: string): string | undefined {
@@ -32,7 +32,7 @@ const mode: ImportMode = process.argv.includes("--apply") ? "apply" : "dry-run";
 const sheet = arg("sheet");
 const actor = get<{ id: string }>(`SELECT id FROM people WHERE role = 'admin' ORDER BY name LIMIT 1`);
 
-getDb();
+initDb();
 const text = fs.readFileSync(fullPath, "utf8");
 const report = runImport({
   text,

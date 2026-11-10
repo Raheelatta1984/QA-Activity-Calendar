@@ -2,6 +2,22 @@
 
 All notable changes to this project are recorded here and, for in-app users, in the **What's new** tab (`/changelog`, backed by the `changelog` table). Format: version — date — summary.
 
+## 1.6.0 — 2026-11-10 — Real database, and releases that plan QA effort
+
+Persistence is no longer a local file by default: the app runs on **Postgres**
+when `DATABASE_URL` is set, and a release now carries the **QA window and the
+people** whose effort it needs — counted in the Releases tab, the QA calendar and
+the FTE calendar.
+
+- **Postgres is a driver, not a rewrite.** `lib/database` is a driver-agnostic facade; `lib/database/sqlite.ts` (`node:sqlite`) is the local default and `lib/database/postgres.ts` runs `pg` in a worker thread so the *same synchronous* `all/get/run/exec/transaction` API works on both. No page, action, script or test branches on the driver.
+- **One schema, two stores.** Migrations stay the SQL the app already ships; on a fresh Postgres database the driver replays them into an in-memory SQLite engine, converts `sqlite_master` to Postgres DDL (`lib/database/pg-schema.ts`: 40 tables, 41 foreign keys, dependency-ordered) and records `pg-baseline@005_release_planning.sql`. Later migrations are translated per statement (`lib/database/dialect.ts`), which now also handles null-safe `IS ?` → `IS NOT DISTINCT FROM ?` and refuses `sqlite_master`/`rowid`/`INSERT OR REPLACE`.
+- **Failures are loud.** `DATABASE_URL` selects Postgres; a missing or unreachable server falls back to SQLite so a laptop always runs, but `DATABASE_REQUIRE_POSTGRES=true` / `DATABASE_DRIVER=postgres` forbid it in production. `/api/health` reports `driver`, `durable`, `target` (no credentials), `baseline` and `fallbackReason`. Statements inside a transaction use the reserved client, so migrations and imports are correct even with `PG_POOL_MAX=1`.
+- **Release planning (migration `005`).** `release_feed` gains `qa_start_date`/`qa_end_date` (inclusive, NULL = not planned) and `qa_owner_id`; new `release_assignees` (`release_id`, `person_id`, `role`, `fte` per working day, `UNIQUE(release_id, person_id)`, cascade). The Releases tab gets a *QA window, assignees & release FTE* section with inline assignee rows and live FTE-days/hours.
+- **The effort is derived, not typed.** FTE-days = Σ assignee shares × working days (Mon–Fri less NSW holidays); hours = FTE-days × the configured day length (7.6 default). A window with no assignees is an `Unassigned` row with 0 FTE plus `release.qa_window_unassigned` — visible, never invented. Validation also reports `release.qa_window_missing` (info), `release.qa_window_invalid` (error) and `release.qa_window_after_release`.
+- **Same numbers everywhere.** The QA calendar overlays `REL <version>` chips across the QA window and the FTE calendar gains a `Release` group with its own rows, per-day column contribution and a `release_fte_days` total — so a release's demand is visible in both calendars and cannot drift from the Releases tab.
+- **Tests: 142.** `tests/releases.test.mts` (10 cases: window maths, FTE-days/hours, unassigned gap, validation, cascade delete, calendar/FTE integration) and `tests/postgres-driver.test.mts`, which starts PGlite behind the Postgres wire protocol in a child process and drives the real worker bridge through migration, queries, constraint errors, commit/rollback and the release/FTE reads. `tests/postgres.test.mts` covers SQL translation and schema generation.
+- **Deployment.** `pg` is kept out of the bundle (`serverExternalPackages`) and traced into the server output because the bridge `require()`s it at runtime; `.env.example` documents `DATABASE_URL`, `DATABASE_DRIVER`, `DATABASE_REQUIRE_POSTGRES` and `PG_POOL_MAX`; [DEPLOYMENT §3.1](./docs/DEPLOYMENT.md#31-durable-storage-postgres) is the runbook, [ERD → Postgres](./docs/ERD.md#postgres--neon) the contract, [DECISIONS #32/#33](./docs/DECISIONS.md) the reasoning.
+
 ## 1.5.1 — 2026-11-09 — Bridge applies remote stage changes (fix)
 
 - **Fixed**: status labels are written lower case (`status:building`) but were parsed back verbatim (`building`), which has no rank in the pipeline order. A stage changed **on GitHub** therefore ranked `-1` and was treated as "local is further along" — the bridge silently ignored upstream progress and the two-way sync was one-way in practice.

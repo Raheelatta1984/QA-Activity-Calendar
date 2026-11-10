@@ -11,7 +11,7 @@
     "db:seed": "tsx scripts/seed.ts",
     "db:reset": "tsx scripts/reset.ts",
     "import": "tsx scripts/import.ts",
-    "test": "tsx --tsconfig tests/tsconfig.json --test tests/rules.test.ts tests/welcome.test.ts tests/enhancement-lifecycle.test.ts tests/enhancement-bridge.test.ts tests/enhancement-sync-job.test.mjs tests/bootstrap-resilience.test.mts tests/integration.test.mts tests/hfm-import.test.mts tests/org.test.mts tests/automation.test.mjs tests/automation-followup.test.mjs",
+    "test": "tsx --tsconfig tests/tsconfig.json --test tests/rules.test.ts tests/welcome.test.ts tests/enhancement-lifecycle.test.ts tests/enhancement-bridge.test.ts tests/enhancement-sync-job.test.mjs tests/bootstrap-resilience.test.mts tests/integration.test.mts tests/hfm-import.test.mts tests/org.test.mts tests/automation.test.mjs tests/automation-followup.test.mjs tests/releases.test.mts tests/postgres.test.mts tests/postgres-driver.test.mts",
     "typecheck": "tsc --noEmit",
     "lint": "next lint",
     "db:backup": "tsx scripts/backup.ts",
@@ -26,10 +26,13 @@
   },
   "dependencies": {
     "next": "^15.5.29",
+    "pg": "^8.23.1",
     "react": "19.1.0",
     "react-dom": "19.1.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.16",
+    "@electric-sql/pglite-socket": "^0.2.19",
     "@types/node": "22.10.2",
     "@types/react": "19.0.2",
     "@types/react-dom": "19.0.2",

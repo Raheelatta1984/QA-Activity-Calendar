@@ -2,7 +2,7 @@
 
 Run with `npm test` (Node's built-in test runner via `tsx`). The integration suite runs against an isolated temporary database, so it never touches your working data.
 
-**Last run:** 9 Nov 2026 · Node 22.x · `95 tests, 95 pass, 0 fail` · `npm run typecheck` clean · `npm run build` succeeded · HFM acceptance verification `23 passed, 0 failed` on the local demo database.
+**Last run:** 10 Nov 2026 · Node 22.22 · `142 tests, 142 pass, 0 fail` · `npm run typecheck` clean · `npm run build` succeeded · HFM acceptance verification `23 passed, 0 failed` on the local demo database.
 
 ## Automated suites
 
@@ -135,6 +135,27 @@ Full test output (abridged):
 | Archived narrative notes preserved | Done | `original_notes_archive`; import warns on long narrative |
 | No secret leakage | Done | `.env.example` only; no env rendered in UI |
 | Idempotent import and validation recovery | Done | Test 3; validation upsert by `(entity, id, rule)` |
+
+## Postgres driver and release planning (1.6.0)
+
+| # | Test | Requirement covered |
+| --- | --- | --- |
+| P1 | SQL translation for Postgres | `?` → `$n`, `datetime('now')`, `LIKE` → `ILIKE`, `INSERT OR IGNORE` → `ON CONFLICT DO NOTHING`, `IS ?` → `IS NOT DISTINCT FROM ?`, `PRAGMA` dropped, hard error on `sqlite_master`/`rowid`/`INSERT OR REPLACE` |
+| P2 | Postgres schema generation | All 40 tables, 41 foreign keys and indices emitted in dependency order from the replayed migrations |
+| P3 | Baseline ledger | `pg-baseline@005_release_planning.sql` recorded once; a second `migrate()` is a no-op |
+| P4 | Live driver over the Postgres wire protocol | PGlite in a child process: worker start-up, ping, DDL, inserts, `LIKE`, constraint violation surfaced, commit and rollback, null-safe `IS ?`, `tableCount()` |
+| R1 | Release QA window maths | Inclusive window, working days = Mon–Fri less NSW holidays (2030-03-04 → 2030-03-15 = 10 working days) |
+| R2 | Release FTE-days and hours | Σ assignee shares (0.6 + 0.4) × 10 working days = 10 FTE-days = 76 h at 7.6 h/day |
+| R3 | Unassigned window | Gap row named `Unassigned`, 0 FTE + `release.qa_window_unassigned` warning |
+| R4 | Validation | `release.qa_window_missing` (info), `release.qa_window_invalid` (error), `release.qa_window_after_release` |
+| R5 | Calendar integration | `REL` chips across the window service-side; FTE calendar `totals.releases`, `release_fte_days`, +1.0 FTE on a day with 0.6 + 0.4, `group: "Release"` filter |
+| R6 | Assignable people | Disabled departments and inactive people are excluded from the picker |
+| R7 | Cascade delete | Deleting a release (or a person) removes its `release_assignees` rows |
+
+**Measured end to end on Postgres 16 (PGlite socket server, `PG_POOL_MAX=1`):**
+baseline applied once → `people 12`, `activities 20`, `releases 6`,
+`release_assignees 8`, `plans 6`, `fte rows 10`, `release rows 3`,
+`release FTE-days 7.5`, transaction rollback effective, `tableCount 41`.
 
 ## Gaps / next verification (needs the workbook)
 

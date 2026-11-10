@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { all, dbInfo, get } from "@/lib/db";
+import { all, dbInfo, driverError, get, tableCount } from "@/lib/db";
 import { bootstrapDone, bootstrapLastError, bootstrapLastSync, ensureBootstrapped } from "@/lib/bootstrap";
 import { vaultInfo } from "@/lib/enhancements";
 
@@ -22,14 +22,14 @@ export async function GET() {
     bootstrapDone: bootstrapDone(),
     bootstrapError: bootstrapLastError(),
     enhancementDocSync: bootstrapLastSync(),
+    driverError: driverError(),
   };
   try {
-    const tables =
-      get<{ n: number }>(`SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table'`)?.n ?? 0;
+    const tables = tableCount();
     const migrations = all<{ name: string }>(`SELECT name FROM _migrations ORDER BY name`).map(
       (row) => row.name
     );
-    const people = get<{ n: number }>(`SELECT COUNT(*) AS n FROM people`)?.n ?? 0;
+    const people = Number(get<{ n: number }>(`SELECT COUNT(*) AS n FROM people`)?.n ?? 0);
     const ok = tables > 10 && people > 0;
     return NextResponse.json(
       { ok, ...info, tables, migrations, people },

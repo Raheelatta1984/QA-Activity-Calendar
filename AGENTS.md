@@ -33,3 +33,28 @@ configured automation-prefix allowlist, which includes
 branches with newer commits are preserved. Never force a session branch to be
 deleted by adding prefixes: `arena/<session-id>` is excluded by design.
 Inspect workflow results before claiming a handover is complete.
+
+## Data layer (read before touching persistence)
+
+- All persistence goes through `lib/database` (`import { all, get, run, exec, transaction } from "@/lib/db"`).
+  Never import `node:sqlite` or `pg` from application code, never open a second
+  connection, and never branch on the driver inside a page or action.
+- There are two drivers behind that facade: SQLite (`node:sqlite`, the default)
+  and Postgres (`pg` in a worker thread, selected by `DATABASE_URL`). Both keep
+  the API **synchronous**. Do not make a call site async to suit Postgres — if
+  the bridge cannot do something synchronously, fix the bridge.
+- Write SQL in the SQLite dialect: `?` placeholders, `datetime('now')`,
+  `INSERT OR IGNORE`. `lib/database/dialect.ts` translates it for Postgres and
+  throws on anything it cannot translate safely (`sqlite_master`, `rowid`,
+  `INSERT OR REPLACE`). Update the dialect and its tests together with any new
+  construct.
+- New schema changes are new files in `db/migrations/` (never edit an applied
+  migration), then `npm run db:embed` so the bundle carries it. On Postgres the
+  first `005` baseline is generated from the SQLite schema; later migrations are
+  translated per statement.
+- Inside a transaction every statement must use the reserved client — the
+  bridge does this for `run/get/all/exec`; keep it that way, a pool of one must
+  still work.
+- Tests: `npm test` (142) includes `tests/postgres.test.mts` (translation and
+  schema generation) and `tests/postgres-driver.test.mts`, which runs the real
+  driver against PGlite over the Postgres wire protocol in a child process.

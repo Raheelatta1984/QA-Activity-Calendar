@@ -2,7 +2,7 @@
 
 An AI-assisted QA operations workspace that replaces the HFM QA activity workbook: activities, recording pipeline, capacity, releases and defect reporting in one persistent, role-aware application.
 
-Built to the handover in [`ReadTheProjectMDfile.md`](./ReadTheProjectMDfile.md). It is a **working application**, not a prototype: real database, migrations, import tooling, tests and deployment notes. The legacy workbook is never modified — data is imported as text with full provenance.
+Built to the handover in [`ReadTheProjectMDfile.md`](./ReadTheProjectMDfile.md). It is a **working application**, not a prototype: a real database with migrations and a Postgres driver, import tooling, tests and deployment notes. The legacy workbook is never modified — data is imported as text with full provenance.
 
 ```bash
 npm install
@@ -10,6 +10,20 @@ cp .env.example .env            # optional for local dev; defaults are safe
 npm run db:migrate && npm run db:seed
 npm run dev                     # http://localhost:3000
 ```
+
+**Storage.** One data layer, two interchangeable drivers, chosen by
+configuration only:
+
+| `DATABASE_URL` | Driver | Used for |
+| --- | --- | --- |
+| `postgres://…` | `pg` (worker-backed, same synchronous API) | production — durable, shared by every instance |
+| unset | `node:sqlite` at `DATABASE_FILE` | local development, tests, demos |
+
+Both run the same schema, the same migrations and the same SQL, so nothing in
+the app branches on the driver. `DATABASE_REQUIRE_POSTGRES=true` makes a
+connection failure a startup error rather than a silent fallback, and
+`/api/health` always reports `driver`, `durable` and `fallbackReason`. See
+[DEPLOYMENT §3.1](./docs/DEPLOYMENT.md#31-durable-storage-postgres).
 
 Demo identities all use the password `demo1234`:
 
@@ -118,6 +132,7 @@ While you type “what needs to change?”, the studio drafts **options** — ne
 - **Occupied capacity** = unavailable + DevOps + recording + QA ÷ total hours. This is not productive utilisation, and it is deliberately separate from FTE demand.
 - The **FTE calendar** (`tab.fte`) answers a different question: *which testing activity needs how much FTE on which day, and can we cover it?* One row per activity, one column per day, a total per row and per column, plus a demand-per-day chart against the headcount available. Scope it by month or fiscal quarter, department, activity group or assignee, and switch between FTE and hours. Supply is headcount × working days less recorded leave and DevOps time; a negative gap is a request for people, not a performance signal ([DECISIONS #22](./docs/DECISIONS.md)).
 - FTE precedence: explicit per-record override → Regression default `1` → stored FTE → configured default `0.5`. Hours convert through a configurable day length (7.6 default, 8 available) — 4h = 0.5 FTE at 8h/day.
+- **Releases are QA demand too**: a release has an inclusive QA window (from/to) and any number of assignees with a per-working-day FTE share. FTE-days = Σ shares × working days (Mon–Fri less NSW holidays), and the same rows appear in the Releases tab, the QA calendar (REL chips) and the FTE calendar (a `Release` group with its own daily column contribution). A window with no assignees is shown as `Unassigned` with 0 FTE and a validation warning — never guessed.
 - Completion is derived from linked bugs: closed = 100%, fixed = 75%, open = 0%. A manual snapshot overrides the derived figure and is kept with its date.
 - A bug shared by two services closes only when **every** service link is closed.
 
@@ -140,7 +155,8 @@ While you type “what needs to change?”, the studio drafts **options** — ne
 | `npm run db:reset` | **Destructive** local reset |
 | `npm run db:backup` | Online SQLite backup with SHA-256 checksum |
 | `npm run import -- <file.csv> [--target activities\|pipeline] [--apply]` | Import CLI, dry-run by default |
-| `npm test` | Unit + integration tests (37 tests) |
+| `npm run db:embed` | Regenerate `db/migrations.generated.ts` (run after editing `db/migrations`) |
+| `npm test` | Unit, integration and live-driver tests (142 tests) |
 | `npm run typecheck` | Strict TypeScript check |
 | `npm run catalogue` | Regenerate `docs/ID-CATALOGUE.md` |
 
@@ -151,8 +167,9 @@ app/                 Next.js App Router (pages, server actions, API route)
   (app)/             Authenticated shell pages
   actions/           Server actions (validated, audited writes)
 components/          Client + server UI primitives
-lib/                 Domain logic: dates, capacity, pipeline, access, AI, import, validation
-db/migrations/       001_init.sql (30+ tables, provenance, audit)
+lib/                 Domain logic: dates, capacity, pipeline, release FTE, access, AI, import, validation
+lib/database/        Driver facade: SQLite (node:sqlite), Postgres (pg + worker bridge), SQL dialect, generated PG schema
+db/migrations/       001…005 SQL migrations (40 tables, provenance, audit, release planning)
 scripts/             migrate, seed, reset, backup, import CLI, catalogue, automation
 .github/workflows/   CI, handover intake, PR coordination, merge completion
 tests/               node:test unit + integration + automation suites
@@ -176,7 +193,8 @@ data/                Local SQLite database (gitignored) + sample import file
 - The source workbook is **not** in this repository. Imports are therefore exercised against a representative sample (`data/sample-activities.csv`); the mapping layer accepts the documented headers, including the source typo `Assing To`.
 - Authentication is a local scrypt/password + signed-cookie implementation so the app runs without external services. Replace with your approved identity provider before production ([DEPLOYMENT](./docs/DEPLOYMENT.md)).
 - Demo data is synthetic and flagged `is_demo`; it is never presented as operational evidence.
-- On serverless hosting (Vercel) the app runs in **demo mode**: SQLite lives on the instance's `/tmp`, the UI shows a "Serverless demo instance" banner, and data resets when the function restarts. Durable storage requires Postgres — see [DEPLOYMENT §3](./docs/DEPLOYMENT.md#3-serverless-deployment-vercel). `GET /api/health` reports the active database path, migrations and seed counts.
+- Postgres is supported in-app (`DATABASE_URL`), but **this repository's CI never touches a real Postgres server**: the driver is exercised against PGlite over the Postgres wire protocol (`tests/postgres-driver.test.mts`). Treat a first production deployment as a dress rehearsal: run `npm run db:migrate`, open `/api/health` and reconcile the counts.
+- On serverless hosting (Vercel) **without** `DATABASE_URL` the app runs in demo mode: SQLite lives on the instance's `/tmp`, the UI shows a "Serverless demo instance" banner, and data resets when the function restarts. With `DATABASE_URL` set there is no banner and no reset — see [DEPLOYMENT §3](./docs/DEPLOYMENT.md#3-serverless-deployment-vercel). `GET /api/health` reports the active driver, path/target, migrations and seed counts.
 - Where the source behaviour is ambiguous (overlap-parity, display consolidation, multi-assignee shares) the app keeps the safer default and records the open question in [DECISIONS](./docs/DECISIONS.md).
 
 ### Approved enhancement handovers

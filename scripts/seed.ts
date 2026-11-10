@@ -1,8 +1,8 @@
-import { getDb } from "../lib/db";
+import { initDb } from "../lib/db";
 import { bootstrapDatabase, counts } from "../lib/seed";
 import { runValidation } from "../lib/validation";
 
-getDb();
+initDb();
 const result = bootstrapDatabase();
 runValidation();
 const summary = counts();

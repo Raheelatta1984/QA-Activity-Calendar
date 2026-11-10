@@ -1,11 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { get, run } from "@/lib/db";
+import { all, get, run, transaction } from "@/lib/db";
 import { canEdit, getViewer } from "@/lib/access";
 import { uid } from "@/lib/ids";
 import { isIsoDate } from "@/lib/dates";
 import { recordAudit } from "@/lib/audit";
+import { assignablePeople, syncReleaseAssignees } from "@/lib/releases";
 
 function field(formData: FormData, key: string): string | null {
   const raw = formData.get(key);
@@ -231,4 +232,85 @@ export async function deleteReleaseFeedAction(formData: FormData): Promise<void>
     entityId: id,
   });
   revalidatePath("/releases");
+}
+
+/**
+ * Release planning: the QA window and the people doing the work.
+ *
+ * This is the single write path for release effort. Everything downstream
+ * (Releases FTE columns, the QA calendar bar, the FTE calendar rows) is derived
+ * from these two fields plus the assignee shares, so the three tabs can never
+ * disagree. A window without assignees is saved deliberately — the gap is shown
+ * as "effort unknown", never silently counted as zero.
+ */
+export type ReleasePlanResult = { ok?: boolean; error?: string; message?: string };
+
+export async function saveReleasePlanAction(
+  _prev: ReleasePlanResult,
+  formData: FormData
+): Promise<ReleasePlanResult> {
+  const viewer = await getViewer();
+  if (!canEdit(viewer)) return { error: "Read-only access." };
+
+  const id = field(formData, "id");
+  if (!id) return { error: "Missing release reference." };
+  const release = get<{ id: string; version: string }>(
+    `SELECT id, version FROM release_feed WHERE id = ?`,
+    id
+  );
+  if (!release) return { error: "That release no longer exists." };
+
+  const from = field(formData, "qa_start_date");
+  const to = field(formData, "qa_end_date");
+  if (from && !isIsoDate(from)) return { error: "QA start must be a real date (YYYY-MM-DD)." };
+  if (to && !isIsoDate(to)) return { error: "QA end must be a real date (YYYY-MM-DD)." };
+  if ((from && !to) || (!from && to)) return { error: "Enter both QA dates, or clear both — half a window cannot be resourced." };
+  if (from && to && from > to) return { error: "The QA window ends before it starts. Dates are inclusive; fix the range." };
+
+  // Only people in the viewer's scope may be assigned. Anyone the editor cannot
+  // see keeps whatever assignment they already had (see syncReleaseAssignees).
+  const assignable = assignablePeople(viewer);
+  const selected: { person_id: string; fte: number }[] = [];
+  for (const person of assignable) {
+    if (formData.get(`person_${person.id}`) === null) continue;
+    const raw = String(formData.get(`fte_${person.id}`) ?? "").trim();
+    const fte = raw === "" ? 0.5 : Number(raw);
+    if (!Number.isFinite(fte) || fte < 0 || fte > 5) {
+      return { error: `${person.name}: FTE must be a number between 0 and 5.` };
+    }
+    if (fte === 0) {
+      return { error: `${person.name}: an assignee needs an FTE above 0 — untick the person instead.` };
+    }
+    selected.push({ person_id: person.id, fte: Math.round(fte * 100) / 100 });
+  }
+  const inScope = new Set(assignable.map((person) => person.id));
+
+  const before = get<any>(`SELECT * FROM release_feed WHERE id = ?`, id);
+  const beforeAssignees = all<any>(`SELECT person_id, fte FROM release_assignees WHERE release_id = ?`, id);
+
+  transaction(() => {
+    run(`UPDATE release_feed SET qa_start_date = ?, qa_end_date = ? WHERE id = ?`, from, to, id);
+    syncReleaseAssignees(id, inScope, selected);
+  });
+
+  recordAudit({
+    actorId: viewer.person.id,
+    actorName: viewer.person.name,
+    action: "release.plan",
+    entity: "release_feed",
+    entityId: id,
+    before: { ...before, assignees: beforeAssignees },
+    after: { qa_start_date: from, qa_end_date: to, assignees: selected },
+  });
+
+  revalidatePath("/releases");
+  revalidatePath("/calendar");
+  revalidatePath("/fte");
+  revalidatePath("/");
+  return {
+    ok: true,
+    message: `${release.version}: QA window ${from && to ? `${from} → ${to}` : "cleared"} · ${selected.length} assignee${
+      selected.length === 1 ? "" : "s"
+    }. The QA and FTE calendars were updated.`,
+  };
 }
