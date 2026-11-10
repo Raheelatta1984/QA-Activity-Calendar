@@ -1,8 +1,9 @@
 import { notesFor } from "@/lib/notes";
+import { getViewer } from "@/lib/access";
 import { StickyNotes } from "./StickyNotes";
 import { get } from "@/lib/db";
 
-export function Section({
+export async function Section({
   id,
   tabId,
   title,
@@ -23,7 +24,8 @@ export function Section({
   canEdit?: boolean;
   bare?: boolean;
 }) {
-  const notes = notesFor(tabId, id);
+  const viewer = await getViewer();
+  const notes = notesFor(tabId, id, viewer.org.company.id);
   const config = get<{ enabled: number }>(`SELECT enabled FROM sections WHERE id = ?`, id);
   const disabled = config ? !config.enabled : false;
   if (disabled && !canEdit) return null;

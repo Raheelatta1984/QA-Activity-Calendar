@@ -317,13 +317,14 @@ test("recording rows are excluded from the testing-only FTE calendar", () => {
   const start = `${month}-01`;
   const end = `${month}-28`;
   const recording = get<{ id: string }>(
-    `SELECT id FROM activities WHERE activity_group = 'Recording' AND start_date IS NOT NULL LIMIT 1`
+    `SELECT id FROM activities WHERE activity_group = 'Recording' AND start_date IS NOT NULL AND company_id = ? LIMIT 1`, admin.org.company.id
   );
   if (!recording) {
     // Seed a recording activity so the filter is exercised either way.
     run(
-      `INSERT INTO activities (id, code, department_id, activity, activity_group, active, start_date, end_date, duration_days, fte, colour, status, is_demo)
-       VALUES ('act_test_recording', 'CI-9001', 'dept_qa', 'Test recording row', 'Recording', 1, ?, ?, 5, 1, '#8b5cf6', 'Planned', 1)`,
+      `INSERT INTO activities (id, code, company_id, department_id, activity, activity_group, active, start_date, end_date, duration_days, fte, colour, status, is_demo)
+       VALUES ('act_test_recording', 'CI-9001', ?, 'dept_qa', 'Test recording row', 'Recording', 1, ?, ?, 5, 1, '#8b5cf6', 'Planned', 1)`,
+      admin.org.company.id,
       start,
       end
     );

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { get, run } from "@/lib/db";
-import { canEdit, getViewer } from "@/lib/access";
+import { canEdit, getViewer, personInCompany } from "@/lib/access";
 import { uid } from "@/lib/ids";
 import { recordAudit } from "@/lib/audit";
 import { isIsoDate } from "@/lib/dates";
@@ -13,6 +13,7 @@ export async function saveCapacityAction(formData: FormData): Promise<void> {
   const personId = String(formData.get("person_id") ?? "");
   const date = String(formData.get("date") ?? "");
   if (!personId || !isIsoDate(date)) return;
+  if (!personInCompany(viewer, personId)) return;
 
   const notAvailable = Math.max(0, Number(formData.get("not_available_hours") ?? 0) || 0);
   const devops = Math.max(0, Number(formData.get("devops_hours") ?? 0) || 0);
@@ -74,10 +75,13 @@ export async function bulkCapacityAction(formData: FormData): Promise<void> {
   const total = Number(formData.get("total_hours") ?? 7.6);
   const personId = String(formData.get("person_id") ?? "");
   if (!/^\d{4}-\d{2}$/.test(monthKey)) return;
+  if (personId && !personInCompany(viewer, personId)) return;
 
   const people = personId
     ? [{ id: personId }]
-    : viewer.org.people.filter((p) => viewer.canSeeAll || viewer.personIds.has(p.id));
+    : viewer.org.people
+        .filter((p) => viewer.canSeeAll || viewer.personIds.has(p.id))
+        .filter((p) => viewer.departmentIds.has(p.department_id ?? ""));
 
   const days = new Date(Date.UTC(Number(monthKey.slice(0, 4)), Number(monthKey.slice(5, 7)), 0)).getUTCDate();
   let updated = 0;

@@ -1,5 +1,5 @@
 import { all } from "./db";
-import type { Viewer } from "./access";
+import { matchesDepartment, type Viewer } from "./access";
 import { addDays, eachDay, isWorkingDay, monthStart, monthLabel, addMonths, isoToday, toUtc } from "./dates";
 import { listActivities } from "./activities";
 import { holidayMap } from "./pipeline";
@@ -76,7 +76,7 @@ export function capacityMonth(viewer: Viewer, monthKey?: string): CapacityMonth 
     .filter((p) => !!p.active)
     .filter((p) => viewer.canSeeAll || viewer.personIds.has(p.id))
     .filter((p) => !p.department_id || viewer.departmentIds.has(p.department_id))
-    .filter((p) => !viewer.activeDepartmentId || p.department_id === viewer.activeDepartmentId);
+    .filter((p) => matchesDepartment(viewer, p.department_id));
 
   const entries = all<CapacityCell & { person_id: string }>(
     `SELECT * FROM resource_day_capacity WHERE date >= ? AND date <= ?`,

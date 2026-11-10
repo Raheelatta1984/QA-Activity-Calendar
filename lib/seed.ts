@@ -1,4 +1,5 @@
 import { all, get, run, setSetting, transaction } from "./db";
+import { ensureHarrisfarmMarketsTenant } from "./tenants";
 import { hashPassword } from "./auth";
 import { uid } from "./ids";
 import { addDays, fiscalYearBounds, fiscalYearOf, inclusiveDays, isoToday } from "./dates";
@@ -198,6 +199,7 @@ export const TAB_CATALOGUE: TabSeed[] = [
     sort: 100,
     sections: [
       { id: "sec.setup.company", label: "Companies & entities", description: "All companies and entities, the default workspace, legal name, timezone and fiscal year start." },
+      { id: "sec.setup.tenants", label: "Tenant data", description: "Provision the separate Harrisfarm Markets tenant and copy HFM data into it as tagged, reversible batches." },
       { id: "sec.setup.departments", label: "Departments", description: "Enable or disable departments without deleting data." },
       { id: "sec.setup.hierarchy", label: "Organisation hierarchy", description: "Drag-and-drop reporting lines with visibility rules." },
       { id: "sec.setup.people", label: "Employees", description: "Roles, capacity and department assignment." },
@@ -235,6 +237,27 @@ export const CHANGELOG_ENTRIES: Array<{
   items: string[];
   pr: number | null;
 }> = [
+  {
+    version: "2.0.0",
+    title: "Separate tenants, multi-department scope and project names",
+    offset: 0,
+    type: "feature",
+    summary:
+      "Harrisfarm Markets now exists beside HFM as its own company, with its own entity, departments and linked QA identities. HFM data can be copied into it as a clearly tagged, reversible batch; department switchers accept several departments; and every activity can carry a project name.",
+    items: [
+      "New tenant Harrisfarm Markets (code HFM2): a separate company row, entity and four departments — HFM is never renamed or duplicated",
+      "Damien Milthorpe and Raheel Atta have tenant-local identities that link to their HFM accounts; no email or password is invented or copied",
+      "Master Setup → Tenant data provisions the tenant and previews exactly what would be copied before anything is written",
+      "Copying HFM data assigns every copied activity, pipeline row and release to the target tenant's Raheel Atta, tags each row with a batch id and records its source row",
+      "Copying is idempotent while a batch is active; deleting a batch removes only that tenant's tagged copies and leaves the originals untouched",
+      "Every operational read and write is clamped to the selected company; a forged department, person, release, bug or view id from another tenant is rejected server-side",
+      "The department switcher accepts one, several or all authorised departments; people and work from the selected union are shown, not just one department",
+      "Activities carry an optional project name on the form, calendar labels, tooltips, search, dashboard, reporting and CSV/Excel import",
+      "New schema migration 007 scopes sticky notes to a tenant; AI guidance notes remain shared reference content",
+      "Tenant provisioning, isolation, department selection, project names and copy deletion are covered by tests — 154 tests",
+    ],
+    pr: null,
+  },
   {
     version: "1.0.0",
     title: "QA Activity Calendar platform goes live",
@@ -529,6 +552,8 @@ export const AI_NOTES: Record<string, string> = {
     "AI guidance · One bug ID across two services counts once overall and once per service. The derived badge only closes when every service link is closed.",
   "sec.setup.company":
     "AI guidance · The default company drives which company renders first and which scope the login screen opens on — it never grants cross-company access. Company timezone and fiscal start drive every date calculation; change them deliberately.",
+  "sec.setup.tenants":
+    "AI guidance · The separate Harrisfarm Markets tenant (HFM2) has its own company, entity and departments. Provisioning links existing HFM identities by name without copying emails or passwords. Copying data is explicit (type COPY), tagged with a batch id, assigns the target Raheel Atta, and can be deleted (type DELETE) without touching any HFM row. Nothing is copied until you ask.",
   "sec.setup.holidays":
     "AI guidance · Supply NSW public holidays from the approved source. Holidays are configuration, never fetched or invented, and feed capacity, FTE and pipeline logic.",
   "sec.setup.people":
@@ -702,8 +727,8 @@ export function ensureReference() {
         : scope;
       if (!tabId) continue;
       run(
-        `INSERT INTO sticky_notes (id, tab_id, section_id, title, content, colour, ai_generated, pinned, enabled)
-         VALUES (?, ?, ?, ?, ?, ?, 1, 1, 1)`,
+        `INSERT INTO sticky_notes (id, company_id, tab_id, section_id, title, content, colour, ai_generated, pinned, enabled)
+         VALUES (?, (SELECT id FROM companies ORDER BY is_default DESC, created_at, id LIMIT 1), ?, ?, ?, ?, ?, 1, 1, 1)`,
         uid("note"),
         tabId,
         scope.startsWith("sec.") ? scope : null,
@@ -745,6 +770,11 @@ export function seedDemoData() {
   transaction(() => {
     if (get<{ n: number }>("SELECT COUNT(*) AS n FROM activities")?.n) return;
     seeded = true;
+    // The demo company created by ensureReference(). Resolve by id, not by name:
+    // the production HFM tenant is a different company with a similar name.
+    const companyId =
+      get<{ id: string }>("SELECT id FROM companies WHERE id = 'co_hfm'")?.id ??
+      get<{ id: string }>("SELECT id FROM companies ORDER BY created_at, id LIMIT 1")?.id;
     // ------------------------------------------------------------------ applications
     const apps: Array<[string, string, string]> = [
       ["app_hfmcore", "HFM Core", "Core financial modelling application"],
@@ -1197,11 +1227,37 @@ export function seedDemoData() {
     // every bootstrap); do not insert them again here or fresh databases get
     // duplicated release notes.
 
+    // Demo rows belong to the demo tenant. Tenant keys are written explicitly
+    // by new code, but the demo seed predates them; back-fill only NULLs so the
+    // demo can never appear inside another company's views.
+    if (!companyId) throw new Error("Demo tenant is missing; cannot seed tenant-scoped demo data.");
+    for (const table of [
+      "activities",
+      "recording_pipeline",
+      "pipeline_exclusions",
+      "release_feed",
+      "release_governance",
+      "pqu_trains",
+      "bugs",
+      "applications",
+      "backend_services",
+      "service_deployment_plans",
+      "enhancements",
+    ]) {
+      run(`UPDATE ${table} SET company_id = ? WHERE company_id IS NULL`, companyId);
+    }
     run(
-      `INSERT INTO audit_events (id, actor_id, actor_name, action, entity, entity_id, meta)
-       VALUES (?, 'p_amara', 'Amara Okafor', 'seed.demo_data', 'system', 'bootstrap', ?)`,
+      `UPDATE backend_services SET company_id = (
+         SELECT a.company_id FROM applications a WHERE a.id = backend_services.application_id
+       ) WHERE company_id IS NULL`
+    );
+
+    run(
+      `INSERT INTO audit_events (id, actor_id, actor_name, action, entity, entity_id, meta, company_id)
+       VALUES (?, 'p_amara', 'Amara Okafor', 'seed.demo_data', 'system', 'bootstrap', ?, ?)`,
       uid("aud"),
-      JSON.stringify({ note: "Synthetic demo dataset loaded (flagged is_demo).", fiscalYear: fyBounds.label })
+      JSON.stringify({ note: "Synthetic demo dataset loaded (flagged is_demo).", fiscalYear: fyBounds.label }),
+      companyId
     );
   });
 
@@ -1272,14 +1328,16 @@ export function ensureCatalogue() {
       if (!tabId) continue;
       const sectionId = scope.startsWith("sec.") ? scope : null;
       const exists = get<{ id: string }>(
-        `SELECT id FROM sticky_notes WHERE tab_id = ? AND section_id IS ? AND ai_generated = 1 LIMIT 1`,
+        `SELECT id FROM sticky_notes
+          WHERE company_id = (SELECT id FROM companies ORDER BY is_default DESC, created_at, id LIMIT 1)
+            AND tab_id = ? AND section_id IS ? AND ai_generated = 1 LIMIT 1`,
         tabId,
         sectionId
       );
       if (exists) continue;
       run(
-        `INSERT INTO sticky_notes (id, tab_id, section_id, title, content, colour, ai_generated, pinned, enabled)
-         VALUES (?, ?, ?, ?, ?, ?, 1, 1, 1)`,
+        `INSERT INTO sticky_notes (id, company_id, tab_id, section_id, title, content, colour, ai_generated, pinned, enabled)
+         VALUES (?, (SELECT id FROM companies ORDER BY is_default DESC, created_at, id LIMIT 1), ?, ?, ?, ?, ?, 1, 1, 1)`,
         uid("note"),
         tabId,
         sectionId,
@@ -1339,7 +1397,11 @@ export function bootstrapDatabase() {
   if (process.env.SEED_DEMO_DATA !== "false") {
     createdDemo = seedDemoData();
   }
-  return { createdReference, createdDemo };
+  // The separate Harrisfarm Markets tenant is provisioned here so the tenant
+  // picker is real on a fresh database. It is idempotent and only touches its
+  // own fixed ids; HFM and demo rows are never renamed or duplicated.
+  const tenant = ensureHarrisfarmMarketsTenant({ name: "bootstrap" });
+  return { createdReference, createdDemo, tenant };
 }
 
 export function counts() {

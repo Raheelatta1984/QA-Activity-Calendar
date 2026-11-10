@@ -13,12 +13,17 @@ export const dynamic = "force-dynamic";
 export default async function ImportsPage() {
   const viewer = await getViewer();
   const editable = canEdit(viewer);
-  const batches = listBatches(15);
+  const batches = listBatches(15, viewer.org.company.id);
   const rows = all<any>(
-    `SELECT * FROM import_rows WHERE batch_id IN (SELECT id FROM import_batches ORDER BY created_at DESC LIMIT 3)
-      ORDER BY row_number LIMIT 40`
+    `SELECT * FROM import_rows WHERE batch_id IN (
+       SELECT id FROM import_batches WHERE company_id = ? ORDER BY created_at DESC LIMIT 3
+     ) ORDER BY row_number LIMIT 40`,
+    viewer.org.company.id
   );
-  const notesArchived = all<{ n: number }>(`SELECT COUNT(*) AS n FROM original_notes_archive`)[0]?.n ?? 0;
+  const notesArchived = all<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM original_notes_archive WHERE company_id = ?`,
+    viewer.org.company.id
+  )[0]?.n ?? 0;
 
   const samplePath = path.join(process.cwd(), "data", "sample-activities.csv");
   const sample = fs.existsSync(samplePath) ? fs.readFileSync(samplePath, "utf8") : "";
@@ -48,7 +53,12 @@ export default async function ImportsPage() {
         canEdit={editable}
         bare
       >
-        <ImportConsole canEdit={editable} />
+        <ImportConsole
+          canEdit={editable}
+          departments={viewer.org.departments
+            .filter((department) => viewer.departmentIds.has(department.id))
+            .map((department) => ({ id: department.id, name: department.name }))}
+        />
       </Section>
 
       <Section

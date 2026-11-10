@@ -49,7 +49,7 @@ export function PeoplePanel({
                   <strong>{person.name}</strong>
                   <div className="card-sub">{person.title ?? "—"}</div>
                 </td>
-                <td className="muted mono" style={{ fontSize: "0.74rem" }}>{person.email}</td>
+                <td className="muted mono" style={{ fontSize: "0.74rem" }}>{person.email ?? "— (linked identity)"}</td>
                 <td>
                   <span className={`badge ${person.role === "admin" ? "badge-purple" : person.role === "exec" ? "badge-amber" : person.role === "manager" ? "badge-blue" : "badge-slate"}`}>
                     {person.role}

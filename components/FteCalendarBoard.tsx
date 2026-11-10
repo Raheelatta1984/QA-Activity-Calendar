@@ -21,6 +21,7 @@ export type FteBoardRow = {
   href?: string;
   code: string | null;
   activity: string;
+  project_name?: string | null;
   detail: string | null;
   group: string;
   colour: string;
@@ -181,6 +182,11 @@ export function FteCalendarBoard({
                         >
                           {row.activity}
                         </a>
+                        {row.project_name ? (
+                          <div className="card-sub" style={{ fontSize: "0.64rem", whiteSpace: "nowrap" }}>
+                            {row.project_name}
+                          </div>
+                        ) : null}
                         <div className="card-sub" style={{ fontSize: "0.68rem", whiteSpace: "nowrap" }}>
                           {row.kind === "release" ? (
                             <span className="badge badge-purple" style={{ fontSize: "0.6rem", marginRight: 5 }}>

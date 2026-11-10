@@ -1,6 +1,6 @@
 import { all } from "./db";
 
-export function notesFor(tabId: string, sectionId?: string) {
+export function notesFor(tabId: string, sectionId: string | undefined, companyId: string) {
   return all<{
     id: string;
     title: string;
@@ -10,8 +10,9 @@ export function notesFor(tabId: string, sectionId?: string) {
     author_name: string | null;
   }>(
     `SELECT n.*, p.name AS author_name FROM sticky_notes n LEFT JOIN people p ON p.id = n.author_id
-      WHERE n.tab_id = ? AND n.enabled = 1 ${sectionId ? "AND n.section_id = ?" : "AND n.section_id IS NULL"}
+      WHERE n.tab_id = ? AND n.enabled = 1 AND (n.company_id = ? OR n.ai_generated = 1)
+        ${sectionId ? "AND n.section_id = ?" : "AND n.section_id IS NULL"}
       ORDER BY n.pinned DESC, n.updated_at DESC`,
-    ...(sectionId ? [tabId, sectionId] : [tabId])
+    ...(sectionId ? [tabId, companyId, sectionId] : [tabId, companyId])
   );
 }

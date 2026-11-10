@@ -22,7 +22,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     `SELECT * FROM tabs WHERE enabled = 1 ORDER BY sort_order`
   ).filter((tab) => roleRank >= (ROLE_RANK[tab.min_role] ?? 1));
 
-  const issues = validationSummary();
+  const issues = validationSummary(viewer.org.company.id);
   const errorCount = issues.error ?? 0;
   const submittedEnhancements =
     get<{ n: number }>(
@@ -82,8 +82,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       }}
       personaOptions={personaOptions}
       version={latest?.version ? `v${latest.version}` : "v1.0.0"}
-      departments={org.departments.map((d) => ({ id: d.id, name: d.name, enabled: d.enabled }))}
+      departments={org.departments.map((d) => ({ id: d.id, name: d.name, enabled: d.enabled, entity_id: d.entity_id }))}
       activeDepartmentId={viewer.activeDepartmentId}
+      activeDepartmentIds={viewer.activeDepartmentIds}
+      companies={viewer.companies.map((company) => ({ id: company.id, name: company.name, code: company.code ?? null }))}
+      selectedCompanyId={org.company.id}
+      entities={viewer.entities.map((entity) => ({ id: entity.id, name: entity.name }))}
+      selectedEntityId={viewer.selectedEntityId}
       ephemeral={dbEphemeral}
       showLoginWelcome={isLoginWelcomeTokenForSession(headerBag.get(LOGIN_WELCOME_HEADER), session)}
     >

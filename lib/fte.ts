@@ -1,5 +1,5 @@
 import { all } from "./db";
-import type { Viewer } from "./access";
+import { departmentScope, matchesDepartment, type Viewer } from "./access";
 import { listActivities, type ActivityView } from "./activities";
 import {
   addDays,
@@ -75,6 +75,7 @@ export type FteActivityRow = {
   href: string;
   code: string | null;
   activity: string;
+  project_name?: string | null;
   detail: string | null;
   group: string;
   colour: string;
@@ -243,13 +244,15 @@ export function peopleInScope(viewer: Viewer, departmentId: string | null) {
     .filter((p) => !!p.active)
     .filter((p) => viewer.canSeeAll || viewer.personIds.has(p.id))
     .filter((p) => !p.department_id || viewer.departmentIds.has(p.department_id))
+    .filter((p) => matchesDepartment(viewer, p.department_id))
     .filter((p) => !departmentId || p.department_id === departmentId);
 }
 
 /** Default department: the viewer's active scope, else a QA-like department. */
 export function defaultDepartmentId(viewer: Viewer): string | null {
-  if (viewer.activeDepartmentId && viewer.departmentIds.has(viewer.activeDepartmentId)) {
-    return viewer.activeDepartmentId;
+  const selected = departmentScope(viewer);
+  if (selected.length === 1 && viewer.departmentIds.has(selected[0])) {
+    return selected[0];
   }
   const qa = viewer.org.departments.find(
     (d) => !!d.enabled && viewer.departmentIds.has(d.id) && /^qa$|quality/i.test(`${d.code} ${d.name}`)
@@ -308,6 +311,7 @@ export function fteCalendar(viewer: Viewer, filters: FteFilters = {}): FteCalend
     href: string;
     code: string | null;
     activity: string;
+    project_name?: string | null;
     detail: string | null;
     group: string;
     colour: string;
@@ -331,6 +335,7 @@ export function fteCalendar(viewer: Viewer, filters: FteFilters = {}): FteCalend
     href: `/calendar?month=${(activity.start_date ?? start).slice(0, 7)}&activity=${activity.id}`,
     code: activity.code,
     activity: activity.activity,
+    project_name: activity.project_name,
     detail: activity.detail,
     group: activity.activity_group,
     colour: activity.colour,
@@ -365,7 +370,9 @@ export function fteCalendar(viewer: Viewer, filters: FteFilters = {}): FteCalend
           .filter(
             (row) =>
               !searchTerm ||
-              `${row.activity} ${row.detail ?? ""} ${row.assignee_name}`.toLowerCase().includes(searchTerm)
+              `${row.activity} ${(row as { project_name?: string | null }).project_name ?? ""} ${row.detail ?? ""} ${row.assignee_name}`
+                .toLowerCase()
+                .includes(searchTerm)
           )
           .map((row) => ({
             id: row.id,
@@ -622,9 +629,12 @@ export function headcountFor(fteDemand: number): number {
   return Math.ceil(fteDemand);
 }
 
-export function activityGroups(): string[] {
+export function activityGroups(companyId?: string | null): string[] {
   const rows = all<{ activity_group: string }>(
-    `SELECT DISTINCT activity_group FROM activities WHERE active = 1 ORDER BY activity_group`
+    companyId
+      ? `SELECT DISTINCT activity_group FROM activities WHERE company_id = ? AND active = 1 ORDER BY activity_group`
+      : `SELECT DISTINCT activity_group FROM activities WHERE active = 1 ORDER BY activity_group`,
+    ...(companyId ? [companyId] : [])
   );
   return rows.map((r) => r.activity_group);
 }

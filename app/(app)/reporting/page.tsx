@@ -17,7 +17,7 @@ export default async function ReportingPage() {
   const today = isoToday();
   const bugs = listBugs(viewer);
   const totals = bugTotals(bugs);
-  const services = listServices();
+  const services = listServices(viewer);
   const progressByActivity = bugProgressByActivity(bugs);
   const activities = listActivities(viewer, { includeInactive: true, limit: 300 });
 
@@ -118,7 +118,10 @@ export default async function ReportingPage() {
             links: bug.links,
           }))}
           services={services}
-          activities={activities.map((a) => ({ id: a.id, activity: a.activity }))}
+          activities={activities.map((a) => ({
+            id: a.id,
+            activity: a.project_name ? `${a.project_name} · ${a.activity}` : a.activity,
+          }))}
           canEdit={editable}
           path="/reporting"
         />
@@ -141,6 +144,7 @@ export default async function ReportingPage() {
                   <div className="row-between">
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontWeight: 600, fontSize: "0.88rem" }}>{activity.activity}</div>
+                      <div className="card-sub">{activity.project_name ?? "Project not recorded"}</div>
                       <div className="card-sub">
                         {activity.assignee_name} · {counts.reported} reported · {counts.fixed} fixed · {counts.closed} closed ·{" "}
                         {counts.outstanding} outstanding

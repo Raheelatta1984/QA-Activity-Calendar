@@ -2,7 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { all, get, run, setSetting } from "@/lib/db";
-import { canAdmin, canManagePeople, getViewer, loadOrg, descendantsOf, scopedDepartmentId } from "@/lib/access";
+import {
+  canAdmin,
+  canManagePeople,
+  departmentInCompany,
+  getViewer,
+  loadOrg,
+  descendantsOf,
+  scopedDepartmentId,
+} from "@/lib/access";
 import { setDefaultCompany } from "@/lib/org";
 import { hashPassword } from "@/lib/auth";
 import { uid } from "@/lib/ids";
@@ -59,22 +67,33 @@ export async function saveDepartmentAction(formData: FormData): Promise<void> {
   const name = value(formData, "name");
   const code = value(formData, "code").toUpperCase() || name.slice(0, 4).toUpperCase();
   if (!name) return;
+  const companyId = viewer.org.company.id;
+  const entityId = value(formData, "entityId") || null;
+  if (entityId) {
+    const entity = get<{ company_id: string }>("SELECT company_id FROM entities WHERE id = ?", entityId);
+    // A department can only be attached to an entity of the selected tenant.
+    if (!entity || entity.company_id !== companyId) return;
+  }
   if (id) {
+    const target = get<{ company_id: string }>("SELECT company_id FROM departments WHERE id = ?", id);
+    if (!target || target.company_id !== companyId) return;
     run(
-      `UPDATE departments SET name = ?, code = ?, description = ?, colour = ? WHERE id = ?`,
+      `UPDATE departments SET name = ?, code = ?, description = ?, colour = ?, entity_id = ? WHERE id = ?`,
       name,
       code,
       value(formData, "description") || null,
       value(formData, "colour") || "#4f8cff",
+      entityId,
       id
     );
   } else {
     const newId = uid("dept");
     run(
-      `INSERT INTO departments (id, company_id, code, name, description, colour, enabled, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, 1, (SELECT COALESCE(MAX(sort_order), 0) + 10 FROM departments))`,
+      `INSERT INTO departments (id, company_id, entity_id, code, name, description, colour, enabled, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, (SELECT COALESCE(MAX(sort_order), 0) + 10 FROM departments))`,
       newId,
-      viewer.org.company.id,
+      companyId,
+      entityId,
       code,
       name,
       value(formData, "description") || null,
@@ -126,6 +145,9 @@ export async function toggleDepartmentAction(formData: FormData): Promise<void> 
   const id = value(formData, "id");
   const before = get<any>("SELECT * FROM departments WHERE id = ?", id);
   if (!before) return;
+  // Administrators manage the selected tenant only; a forged id from another
+  // company is rejected before the toggle (the server is the boundary, not UI).
+  if (!departmentInCompany(viewer, id)) return;
   run(`UPDATE departments SET enabled = 1 - enabled WHERE id = ?`, id);
   recordAudit({
     actorId: viewer.person.id,
@@ -148,28 +170,42 @@ export async function savePersonAction(_prev: AdminResult, formData: FormData): 
   const email = value(formData, "email").toLowerCase();
   const role = value(formData, "role") || "viewer";
   if (!name) return { error: "Name is required." };
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { error: "A valid email is required." };
+  // A linked tenant identity deliberately has no email of its own — never
+  // invent one. New rows still require a verified address.
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { error: "A valid email is required." };
+  if (!email && !id) return { error: "A valid email is required for a new employee." };
   if (role === "admin" && viewer.role !== "admin") return { error: "Only an administrator can grant admin." };
 
-  const duplicate = get<{ id: string }>(`SELECT id FROM people WHERE LOWER(email) = ? AND id <> ?`, email, id);
-  if (duplicate) return { error: "That email is already in use." };
+  if (email) {
+    const duplicate = get<{ id: string }>(`SELECT id FROM people WHERE LOWER(email) = ? AND id <> ?`, email, id);
+    if (duplicate) return { error: "That email is already in use." };
+  }
 
   let managerId = value(formData, "manager_id") || null;
   if (managerId === id) return { error: "A person cannot report to themselves." };
 
-  const org = loadOrg();
+  const org = loadOrg(viewer.org.company.id);
   if (id && managerId) {
     const subtree = descendantsOf(org.people, id);
     if (subtree.has(managerId)) return { error: "That move would create a reporting loop." };
   }
   // Managers may only edit their own sub-tree and cannot promote above their role.
   if (viewer.role === "manager") {
-    const scope = descendantsOf(org.people, viewer.person.id);
+    const scope = descendantsOf(org.people, viewer.actingAs.id);
     if (id && !scope.has(id)) return { error: "You can only edit your own team." };
     if (managerId && !scope.has(managerId)) return { error: "The manager must be inside your team." };
   }
   const capacity = Number(formData.get("capacity_hours_day") ?? 7.6) || 7.6;
   const departmentId = value(formData, "department_id") || null;
+  if (departmentId && !viewer.org.deptById.has(departmentId)) {
+    return { error: "That department belongs to another company." };
+  }
+  if (!id && !departmentId) {
+    return { error: "Choose a department — a new person must belong to this company through one." };
+  }
+  if (managerId && !org.byId.has(managerId)) {
+    return { error: "The manager must be in the selected company." };
+  }
   // Department-scoped admins (DEPARTMENT_ADMIN) manage only their own department.
   if (viewer.role === "department_admin") {
     const scope = scopedDepartmentId(viewer.person);
@@ -201,7 +237,7 @@ export async function savePersonAction(_prev: AdminResult, formData: FormData): 
       `UPDATE people SET name = ?, email = ?, title = ?, role = ?, manager_id = ?, department_id = ?,
          capacity_hours_day = ?, active = ? WHERE id = ?`,
       name,
-      email,
+      email || null,
       value(formData, "title") || null,
       role,
       managerId,
@@ -255,12 +291,14 @@ export async function movePersonAction(personId: string, managerId: string | nul
   const viewer = await getViewer();
   if (!canAdmin(viewer)) return { error: "Only an administrator can restructure the hierarchy." };
   if (personId === managerId) return { error: "A person cannot report to themselves." };
-  const org = loadOrg();
+  const org = loadOrg(viewer.org.company.id);
   if (managerId && descendantsOf(org.people, personId).has(managerId)) {
     return { error: "That move would create a reporting loop." };
   }
   const before = get<any>("SELECT manager_id, name FROM people WHERE id = ?", personId);
   if (!before) return { error: "Person not found." };
+  if (!org.byId.has(personId)) return { error: "That person belongs to another company." };
+  if (managerId && !org.byId.has(managerId)) return { error: "That manager belongs to another company." };
   run(`UPDATE people SET manager_id = ? WHERE id = ?`, managerId, personId);
   recordAudit({
     actorId: viewer.person.id,
@@ -280,6 +318,7 @@ export async function togglePersonActiveAction(formData: FormData): Promise<void
   const viewer = await getViewer();
   if (!canManagePeople(viewer)) return;
   const id = value(formData, "id");
+  if (!viewer.org.byId.has(id)) return;
   run(`UPDATE people SET active = 1 - active WHERE id = ?`, id);
   recordAudit({
     actorId: viewer.person.id,

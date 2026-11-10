@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { get, run } from "@/lib/db";
-import { canAdmin, canEdit, getViewer } from "@/lib/access";
+import { canAdmin, canEdit, departmentInCompany, getViewer, personInCompany, tenantId } from "@/lib/access";
 import { uid } from "@/lib/ids";
 import { inclusiveDays, isIsoDate } from "@/lib/dates";
 import { recordAudit } from "@/lib/audit";
@@ -67,10 +67,20 @@ export async function savePipelineAction(_prev: PipelineResult, formData: FormDa
   }
 
   const path = String(formData.get("path") ?? "/pipeline");
+  const companyId = tenantId(viewer);
+  if (payload.department_id && !departmentInCompany(viewer, payload.department_id)) {
+    return { error: "That department is outside this tenant." };
+  }
+  if (payload.assignee_id && !personInCompany(viewer, payload.assignee_id)) {
+    return { error: "That assignee is outside this tenant." };
+  }
 
   if (id) {
     const before = get<any>("SELECT * FROM recording_pipeline WHERE id = ?", id);
     if (!before) return { error: "Recording no longer exists." };
+    if (before.company_id && before.company_id !== companyId) {
+      return { error: "That recording belongs to another company." };
+    }
     run(
       `UPDATE recording_pipeline SET code = ?, department_id = ?, activity = ?, detail = ?, planned_start = ?, planned_end = ?,
          actual_start = ?, actual_end = ?, duration_days = ?, recording_status = COALESCE(?, recording_status), current_status = ?, automation_percent = ?, automation_fraction = ?,
@@ -106,13 +116,18 @@ export async function savePipelineAction(_prev: PipelineResult, formData: FormDa
     });
   } else {
     const newId = uid("pipe");
-    const seq = (get<{ n: number }>("SELECT COUNT(*) AS n FROM recording_pipeline")?.n ?? 0) + 201;
+    const seq =
+      (get<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM recording_pipeline WHERE company_id = ?",
+        companyId
+      )?.n ?? 0) + 201;
     run(
       `INSERT INTO recording_pipeline
-        (id, code, department_id, activity, detail, planned_start, planned_end, actual_start, actual_end, duration_days,
+        (id, company_id, code, department_id, activity, detail, planned_start, planned_end, actual_start, actual_end, duration_days,
          recording_status, current_status, automation_percent, automation_fraction, blocker, colour, assignee_id, is_test, notes, source_sheet)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'app')`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'app')`,
       newId,
+      companyId,
       payload.code ?? `REC-${seq}`,
       payload.department_id,
       payload.activity,
@@ -151,7 +166,7 @@ export async function deletePipelineAction(formData: FormData): Promise<void> {
   if (!canEdit(viewer)) return;
   const id = String(formData.get("id") ?? "");
   const before = get<any>("SELECT * FROM recording_pipeline WHERE id = ?", id);
-  if (!before) return;
+  if (!before || (before.company_id && before.company_id !== tenantId(viewer))) return;
   run(`DELETE FROM recording_pipeline WHERE id = ?`, id);
   recordAudit({
     actorId: viewer.person.id,
@@ -172,14 +187,23 @@ export async function addExclusionAction(formData: FormData): Promise<void> {
   const reason = String(formData.get("reason") ?? "").trim();
   const pipelineId = String(formData.get("pipeline_id") ?? "") || null;
   if (!isIsoDate(date) || !reason) return;
+  const companyId = tenantId(viewer);
+  if (pipelineId) {
+    const pipeline = get<{ company_id: string | null }>(
+      `SELECT company_id FROM recording_pipeline WHERE id = ?`,
+      pipelineId
+    );
+    if (!pipeline || (pipeline.company_id && pipeline.company_id !== companyId)) return;
+  }
   const id = uid("exc");
   run(
-    `INSERT INTO pipeline_exclusions (id, pipeline_id, date, reason, created_by) VALUES (?, ?, ?, ?, ?)`,
+    `INSERT INTO pipeline_exclusions (id, company_id, pipeline_id, date, reason, created_by) VALUES (?, ?, ?, ?, ?, ?)`,
     id,
+    companyId,
     pipelineId,
     date,
     reason,
-    viewer.person.id
+    viewer.actingAs.id
   );
   recordAudit({
     actorId: viewer.person.id,
@@ -198,7 +222,7 @@ export async function removeExclusionAction(formData: FormData): Promise<void> {
   if (!canEdit(viewer)) return;
   const id = String(formData.get("id") ?? "");
   const before = get<any>("SELECT * FROM pipeline_exclusions WHERE id = ?", id);
-  if (!before) return;
+  if (!before || (before.company_id && before.company_id !== tenantId(viewer))) return;
   run(`DELETE FROM pipeline_exclusions WHERE id = ?`, id);
   recordAudit({
     actorId: viewer.person.id,
@@ -220,7 +244,7 @@ export async function confirmPipelineVerificationAction(formData: FormData): Pro
   const id = String(formData.get("id") ?? "");
   if (!id) return;
   const before = get<any>(`SELECT * FROM recording_pipeline WHERE id = ?`, id);
-  if (!before) return;
+  if (!before || (before.company_id && before.company_id !== tenantId(viewer))) return;
   if (before.verification_status === "Confirmed operational") return;
   run(`UPDATE recording_pipeline SET verification_status = 'Confirmed operational' WHERE id = ?`, id);
   recordAudit({
@@ -245,6 +269,8 @@ export async function updateRecordingAction(formData: FormData): Promise<void> {
   // Blank automation stays NULL — never silently zero-filled (import fidelity).
   const automation = automationRaw === "" ? null : Math.max(0, Math.min(100, Number(automationRaw) || 0));
   const status = String(formData.get("recording_status") ?? "");
+  const target = get<{ company_id: string | null }>("SELECT company_id FROM recording_pipeline WHERE id = ?", id);
+  if (!target || (target.company_id && target.company_id !== tenantId(viewer))) return;
   run(
     `UPDATE recording_pipeline SET automation_percent = ?, automation_fraction = ?, recording_status = COALESCE(NULLIF(?, ''), recording_status) WHERE id = ?`,
     automation,

@@ -36,7 +36,7 @@ export function ReportingBoard({
 }: {
   bugs: ReportingBug[];
   services: { id: string; name: string; application_name: string }[];
-  activities: { id: string; activity: string }[];
+  activities: { id: string; activity: string; project_name?: string | null }[];
   canEdit: boolean;
   path: string;
 }) {
@@ -201,7 +201,7 @@ function BugForm({
 }: {
   bug: ReportingBug | null;
   services: { id: string; name: string; application_name: string }[];
-  activities: { id: string; activity: string }[];
+  activities: { id: string; activity: string; project_name?: string | null }[];
   path: string;
   onClose: () => void;
 }) {
@@ -273,7 +273,7 @@ function BugForm({
                   <option value="">Not linked</option>
                   {activities.map((a) => (
                     <option key={a.id} value={a.id}>
-                      {a.activity}
+                      {a.project_name ? `${a.project_name} · ` : ""}{a.activity}
                     </option>
                   ))}
                 </select>

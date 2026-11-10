@@ -38,9 +38,9 @@ export default async function ValidationPage({
     status,
     status
   );
-  const summary = validationSummary();
+  const summary = validationSummary(viewer.org.company.id);
   const resolved = all<{ n: number }>(`SELECT COUNT(*) AS n FROM validation_issues WHERE status = 'resolved'`)[0]?.n ?? 0;
-  const audit = recentAudit(12);
+  const audit = recentAudit(12, viewer.org.company.id);
 
   return (
     <main className="page">

@@ -71,6 +71,17 @@ export function ActivityForm({
 
             <div className="form-grid">
               <div className="field span-2">
+                <label htmlFor="project_name">Project name</label>
+                <input
+                  id="project_name"
+                  className="input"
+                  name="project_name"
+                  defaultValue={activity?.project_name ?? ""}
+                  placeholder="e.g. Store Stock Shipment"
+                />
+                <span className="card-sub">Optional. Shown above the activity on calendars, dashboards and reports; legacy rows stay blank rather than guessed.</span>
+              </div>
+              <div className="field span-2">
                 <label htmlFor="activity">Activity *</label>
                 <input
                   id="activity"

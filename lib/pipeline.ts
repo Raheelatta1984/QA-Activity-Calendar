@@ -1,7 +1,6 @@
 import { all, get } from "./db";
-import type { Viewer } from "./access";
+import { departmentScope, tenantId, type Viewer } from "./access";
 import { addDays, diffDays, eachDay, inclusiveDays, isIsoDate, isWorkingDay, isValidRange, isWeekend } from "./dates";
-import { visibilitySql } from "./activities";
 
 export type PipelineView = {
   id: string;
@@ -28,6 +27,8 @@ export type PipelineView = {
   notes: string | null;
   source_sheet: string | null;
   source_row: number | null;
+  copy_batch_id?: string | null;
+  source_dataset?: string | null;
   eligible_days: number;
   blocked_days: string[];
   exclusions: { date: string; reason: string }[];
@@ -146,11 +147,12 @@ export function computeEffectiveDuration(
   };
 }
 
-/** Org-wide ACTIVE master activities with a valid inclusive range (date blocking). */
-function activeBlockingActivities() {
+/** Tenant-wide ACTIVE master activities with a valid inclusive range (date blocking). */
+function activeBlockingActivities(companyId: string) {
   return all<{ activity: string | null; detail: string | null; start_date: string | null; end_date: string | null }>(
     `SELECT activity, detail, start_date, end_date FROM activities
-      WHERE active = 1 AND start_date IS NOT NULL AND end_date IS NOT NULL AND start_date <= end_date`
+      WHERE company_id = ? AND active = 1 AND start_date IS NOT NULL AND end_date IS NOT NULL AND start_date <= end_date`,
+    companyId
   );
 }
 
@@ -160,24 +162,30 @@ export function verifiedHolidays(): Set<string> | null {
   return new Set(all<{ date: string }>(`SELECT date FROM holidays`).map((r) => r.date));
 }
 
-export function listExclusions() {
+export function listExclusions(viewer?: Viewer) {
+  const companyId = viewer ? tenantId(viewer) : null;
   return all<{ id: string; pipeline_id: string | null; date: string; reason: string; created_at: string; created_by: string | null }>(
     `SELECT e.*, p.name AS created_by_name FROM pipeline_exclusions e
-       LEFT JOIN people p ON p.id = e.created_by ORDER BY e.date`
+       LEFT JOIN people p ON p.id = e.created_by
+      ${companyId ? "WHERE e.company_id = ?" : ""}
+      ORDER BY e.date`,
+    ...(companyId ? [companyId] : [])
   );
 }
 
 export function listPipeline(viewer: Viewer): PipelineView[] {
-  const vis = visibilitySql(viewer);
+  const companyId = tenantId(viewer);
   const holidays = holidayMap();
   const exclusions = all<{ id: string; pipeline_id: string | null; date: string; reason: string }>(
-    `SELECT id, pipeline_id, date, reason FROM pipeline_exclusions`
+    `SELECT id, pipeline_id, date, reason FROM pipeline_exclusions WHERE company_id = ?`,
+    companyId
   );
-  const blockingQaOrgWide = activeBlockingActivities();
+  const blockingQaOrgWide = activeBlockingActivities(companyId);
   const verifiedHolidaySet = verifiedHolidays();
   const activeQa = all<{ id: string; activity: string; start_date: string; end_date: string; assignee_id: string | null; department_id: string | null }>(
     `SELECT id, activity, start_date, end_date, assignee_id, department_id FROM activities
-      WHERE active = 1 AND start_date IS NOT NULL AND end_date IS NOT NULL`
+      WHERE company_id = ? AND active = 1 AND start_date IS NOT NULL AND end_date IS NOT NULL`,
+    companyId
   ).filter((a) => {
     // apply the same person/department visibility to blocking activities
     if (viewer.canSeeAll) return true;
@@ -185,12 +193,21 @@ export function listPipeline(viewer: Viewer): PipelineView[] {
     return !!a.department_id && viewer.departmentIds.has(a.department_id);
   });
 
+  const selected = departmentScope(viewer);
+  const restrictDepartments = selected.length > 0 && selected.length < viewer.departmentIds.size;
   const items = all<any>(
     `SELECT r.*, p.name AS assignee_name
        FROM recording_pipeline r
        LEFT JOIN people p ON p.id = r.assignee_id
-      ORDER BY COALESCE(r.planned_start, '9999-12-31'), r.activity`
-  );
+      WHERE r.company_id = ?
+      ORDER BY COALESCE(r.planned_start, '9999-12-31'), r.activity`,
+    companyId
+  ).filter((item) => {
+    if (restrictDepartments && !selected.includes(item.department_id)) return false;
+    if (viewer.canSeeAll) return true;
+    if (item.assignee_id) return viewer.personIds.has(item.assignee_id);
+    return !!item.department_id && viewer.departmentIds.has(item.department_id);
+  });
 
   return items.map((item) => {
     const eff = effectiveRange(item);
@@ -276,12 +293,19 @@ export type AvailabilityDay = {
   label?: string;
 };
 
-export function availabilityWindow(start: string, end: string, pipelineId?: string): AvailabilityDay[] {
+export function availabilityWindow(
+  start: string,
+  end: string,
+  pipelineId?: string,
+  companyId?: string | null
+): AvailabilityDay[] {
   const holidays = holidayMap();
   const exclusions = all<{ pipeline_id: string | null; date: string; reason: string }>(
     `SELECT pipeline_id, date, reason FROM pipeline_exclusions
-      WHERE pipeline_id IS NULL ${pipelineId ? "OR pipeline_id = ?" : ""}`,
-    ...(pipelineId ? [pipelineId] : [])
+      WHERE (${pipelineId ? "pipeline_id = ?" : "pipeline_id IS NULL"})
+        ${companyId ? "AND company_id = ?" : ""}`,
+    ...(pipelineId ? [pipelineId] : []),
+    ...(companyId ? [companyId] : [])
   );
   const activeQa = all<{ id: string; activity: string; start_date: string; end_date: string }>(
     `SELECT id, activity, start_date, end_date FROM activities

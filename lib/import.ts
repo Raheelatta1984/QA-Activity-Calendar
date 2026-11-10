@@ -37,6 +37,7 @@ export type ImportReport = {
 };
 
 const HEADER_ALIASES: Record<string, string[]> = {
+  project: ["project", "project name", "project title"],
   activity: ["activity", "name", "activity name"],
   detail: ["activity detail", "detail", "description"],
   group: ["activity group", "group", "category"],
@@ -151,31 +152,53 @@ export function runImport(input: {
   filename?: string;
   sheet?: string;
   actorId?: string | null;
+  /** Selected tenant. Defaults to the configured default company for CLI use. */
+  companyId?: string | null;
+  /** Selected department (optional; NULL keeps the row department-less). */
+  departmentId?: string | null;
 }): ImportReport {
   const parsed = parseDelimited(input.text);
   const batchId = uid("imp");
   const warnings: string[] = [];
   const rows: RowReport[] = [];
+  const companyId =
+    input.companyId ??
+    get<{ id: string }>(
+      "SELECT id FROM companies ORDER BY is_default DESC, created_at, id LIMIT 1"
+    )?.id ??
+    null;
+  const departmentId = input.departmentId ?? null;
+  if (departmentId && companyId) {
+    const dept = get<{ company_id: string }>("SELECT company_id FROM departments WHERE id = ?", departmentId);
+    if (!dept || dept.company_id !== companyId) {
+      throw new Error("The selected department does not belong to the selected company.");
+    }
+  }
 
   run(
-    `INSERT INTO import_batches (id, filename, mode, source_system, rows_total, status, created_by)
-     VALUES (?, ?, ?, ?, ?, 'running', ?)`,
+    `INSERT INTO import_batches (id, filename, mode, source_system, rows_total, status, created_by, company_id, department_id)
+     VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
     batchId,
     input.filename ?? "pasted-rows",
     input.mode,
     "workbook",
     parsed.rows.length,
-    input.actorId ?? null
+    input.actorId ?? null,
+    companyId,
+    departmentId
   );
 
   if (!parsed.rows.length) warnings.push("No data rows found. Provide a header row plus at least one record.");
 
   const people = new Map<string, string>();
-  for (const person of all<{ id: string; name: string; email: string }>(
-    `SELECT id, name, email FROM people`
+  for (const person of all<{ id: string; name: string; email: string | null }>(
+    `SELECT p.id, p.name, p.email FROM people p
+       JOIN departments d ON d.id = p.department_id
+      WHERE d.company_id = ?`,
+    companyId
   )) {
     people.set(person.name.toLowerCase(), person.id);
-    people.set(person.email.toLowerCase(), person.id);
+    if (person.email) people.set(person.email.toLowerCase(), person.id);
   }
 
   const apply = input.mode === "apply";
@@ -259,10 +282,16 @@ export function runImport(input: {
 
     if (input.target === "activities") {
       const existing = code
-        ? get<any>(`SELECT * FROM activities WHERE code = ?`, code)
-        : get<any>(`SELECT * FROM activities WHERE activity = ? AND COALESCE(start_date,'') = ?`, activityName, start.value ?? "");
+        ? get<any>(`SELECT * FROM activities WHERE company_id = ? AND code = ?`, companyId, code)
+        : get<any>(
+            `SELECT * FROM activities WHERE company_id = ? AND activity = ? AND COALESCE(start_date,'') = ?`,
+            companyId,
+            activityName,
+            start.value ?? ""
+          );
 
       const payload = {
+        project: pick(row.values, "project") || null,
         activity: activityName,
         detail: pick(row.values, "detail") || null,
         group: pick(row.values, "group") || "QA",
@@ -319,10 +348,11 @@ export function runImport(input: {
           );
         } else {
           run(
-            `UPDATE activities SET activity = ?, detail = ?, activity_group = ?, rule_type = ?, active = ?, start_date = ?, end_date = ?,
+            `UPDATE activities SET project_name = ?, activity = ?, detail = ?, activity_group = ?, rule_type = ?, active = ?, start_date = ?, end_date = ?,
                duration_days = ?, fte = ?, colour = ?, assignee_id = ?, status = ?, notes = ?, data_quality = ?,
                calendar_item_id = ?, planned_start = ?, planned_end = ?, source_sheet = ?, source_row = ?, import_batch_id = ?,
-               updated_at = datetime('now') WHERE id = ?`,
+               company_id = ?, updated_at = datetime('now') WHERE id = ?`,
+            payload.project,
             payload.activity,
             payload.detail,
             payload.group,
@@ -343,6 +373,7 @@ export function runImport(input: {
             input.sheet ?? "tblActivities",
             row.row,
             batchId,
+            companyId,
             existing.id
           );
           updated += 1;
@@ -354,12 +385,15 @@ export function runImport(input: {
       } else {
         const id = uid("act");
         run(
-          `INSERT INTO activities (id, code, activity, detail, activity_group, rule_type, active, start_date, end_date, duration_days,
+          `INSERT INTO activities (id, code, company_id, department_id, project_name, activity, detail, activity_group, rule_type, active, start_date, end_date, duration_days,
              fte, colour, assignee_id, status, notes, data_quality, calendar_item_id, planned_start, planned_end,
              source_sheet, source_row, import_batch_id, is_demo, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))`,
           id,
           payload.code,
+          companyId,
+          departmentId,
+          payload.project,
           payload.activity,
           payload.detail,
           payload.group,
@@ -386,8 +420,12 @@ export function runImport(input: {
       }
     } else {
       const existing = code
-        ? get<any>(`SELECT * FROM recording_pipeline WHERE code = ?`, code)
-        : get<any>(`SELECT * FROM recording_pipeline WHERE activity = ?`, activityName);
+        ? get<any>(`SELECT * FROM recording_pipeline WHERE company_id = ? AND code = ?`, companyId, code)
+        : get<any>(
+            `SELECT * FROM recording_pipeline WHERE company_id = ? AND activity = ?`,
+            companyId,
+            activityName
+          );
 
       const payload = {
         code: code ?? `IMP-REC-${row.row}`,
@@ -414,7 +452,7 @@ export function runImport(input: {
           run(
             `UPDATE recording_pipeline SET activity = ?, detail = ?, planned_start = ?, planned_end = ?, actual_start = ?, actual_end = ?,
                duration_days = ?, recording_status = ?, current_status = ?, automation_percent = ?, blocker = ?, assignee_id = ?,
-               is_test = ?, notes = ?, source_sheet = ?, source_row = ?, import_batch_id = ? WHERE id = ?`,
+               is_test = ?, notes = ?, source_sheet = ?, source_row = ?, import_batch_id = ?, company_id = ?, department_id = ? WHERE id = ?`,
             payload.activity,
             payload.detail,
             payload.plannedStart,
@@ -432,6 +470,8 @@ export function runImport(input: {
             input.sheet ?? "tblRecordingPipeline",
             row.row,
             batchId,
+            companyId,
+            departmentId,
             existing.id
           );
           updated += 1;
@@ -443,11 +483,13 @@ export function runImport(input: {
       } else {
         const id = uid("pipe");
         run(
-          `INSERT INTO recording_pipeline (id, code, activity, detail, planned_start, planned_end, actual_start, actual_end, duration_days,
+          `INSERT INTO recording_pipeline (id, code, company_id, department_id, activity, detail, planned_start, planned_end, actual_start, actual_end, duration_days,
              recording_status, current_status, automation_percent, blocker, assignee_id, is_test, notes, source_sheet, source_row, import_batch_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           id,
           payload.code,
+          companyId,
+          departmentId,
           payload.activity,
           payload.detail,
           payload.plannedStart,
@@ -499,17 +541,20 @@ export function runImport(input: {
 
   if (apply) {
     transaction(() => {
-      persistIssues(detectIssues());
+      persistIssues(detectIssues(input.companyId ?? null), input.companyId ?? null);
     });
   }
 
   return report;
 }
 
-export function listBatches(limit = 12) {
+export function listBatches(limit = 12, companyId?: string | null) {
   return all<any>(
     `SELECT b.*, p.name AS created_by_name FROM import_batches b
-      LEFT JOIN people p ON p.id = b.created_by ORDER BY b.created_at DESC LIMIT ?`,
+      LEFT JOIN people p ON p.id = b.created_by
+      ${companyId ? "WHERE b.company_id = ?" : ""}
+      ORDER BY b.created_at DESC LIMIT ?`,
+    ...(companyId ? [companyId] : []),
     limit
   );
 }

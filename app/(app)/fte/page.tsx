@@ -119,7 +119,7 @@ export default async function FtePage({
           quarterOptions={quarterOptions}
           departments={departments}
           departmentId={calendar.scope.department_id}
-          groups={activityGroups()}
+          groups={activityGroups(viewer.org.company.id)}
           group={calendar.scope.group}
           people={people}
           assigneeId={calendar.scope.assignee_id}

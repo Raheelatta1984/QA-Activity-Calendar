@@ -45,7 +45,7 @@ const STATUS_BADGE: Record<string, string> = {
 export default async function EnhancementsPage() {
   const viewer = await getViewer();
   const editable = canEdit(viewer);
-  const items = listEnhancements();
+  const items = listEnhancements(viewer.org.company.id);
   const files = vaultFiles();
   const vault = vaultInfo();
   const active = items.filter((i) => !["Archived", "Rejected"].includes(i.status));

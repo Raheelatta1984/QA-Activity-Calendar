@@ -4,7 +4,13 @@ import { useActionState, useState } from "react";
 import { Icon } from "./icons";
 import { runImportAction, type ImportState } from "@/app/actions/imports";
 
-export function ImportConsole({ canEdit }: { canEdit: boolean }) {
+export function ImportConsole({
+  canEdit,
+  departments = [],
+}: {
+  canEdit: boolean;
+  departments?: { id: string; name: string }[];
+}) {
   const [state, formAction, pending] = useActionState<ImportState, FormData>(runImportAction, {});
   const [text, setText] = useState("");
   const [filename, setFilename] = useState("pasted-rows");
@@ -35,6 +41,18 @@ export function ImportConsole({ canEdit }: { canEdit: boolean }) {
               <option value="dry-run">Dry run — reconcile only</option>
               <option value="apply">Apply — write records</option>
             </select>
+          </div>
+          <div className="field">
+            <label>Department</label>
+            <select className="select" name="departmentId" defaultValue="">
+              <option value="">— none / company-wide</option>
+              {departments.map((department) => (
+                <option key={department.id} value={department.id}>
+                  {department.name}
+                </option>
+              ))}
+            </select>
+            <span className="card-sub">Rows are written into this tenant and department only.</span>
           </div>
           <div className="field">
             <label>File / batch label</label>
