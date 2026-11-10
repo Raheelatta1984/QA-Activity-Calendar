@@ -254,9 +254,9 @@ export const CHANGELOG_ENTRIES: Array<{
       "The department switcher accepts one, several or all authorised departments; people and work from the selected union are shown, not just one department",
       "Activities carry an optional project name on the form, calendar labels, tooltips, search, dashboard, reporting and CSV/Excel import",
       "New schema migration 007 scopes sticky notes to a tenant; AI guidance notes remain shared reference content",
-      "Tenant provisioning, isolation, department selection, project names and copy deletion are covered by tests — 154 tests",
+      "Tenant provisioning, isolation, department selection, project names and copy deletion are covered by tests — 155 tests",
     ],
-    pr: null,
+    pr: 23,
   },
   {
     version: "1.0.0",
@@ -1348,8 +1348,18 @@ export function ensureCatalogue() {
     }
 
     for (const entry of CHANGELOG_ENTRIES) {
-      const exists = get<{ id: string }>(`SELECT id FROM changelog WHERE version = ? LIMIT 1`, entry.version);
-      if (exists) continue;
+      const exists = get<{ id: string; pr_number: number | null }>(
+        `SELECT id, pr_number FROM changelog WHERE version = ? LIMIT 1`,
+        entry.version
+      );
+      if (exists) {
+        // Backfill the PR reference for installations that seeded this release
+        // before its PR was opened. Editorial links are never overwritten.
+        if (entry.pr && exists.pr_number == null) {
+          run(`UPDATE changelog SET pr_number = ? WHERE id = ?`, entry.pr, exists.id);
+        }
+        continue;
+      }
       run(
         `INSERT INTO changelog (id, version, title, date, type, pr_number, summary, items, published)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
